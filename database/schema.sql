@@ -40,7 +40,6 @@ CREATE TABLE IF NOT EXISTS chamados (
     nf_retorna TEXT NOT NULL CHECK(nf_retorna IN ('Retornará','Não retornará')),
     nome_parceiro TEXT NOT NULL,
     numero_nota TEXT NOT NULL,
-    competencia TEXT NOT NULL,
     data_entrada DATE,
     tipo_nota TEXT CHECK(tipo_nota IN ('Compra','Venda')),
     data_saida DATE,
