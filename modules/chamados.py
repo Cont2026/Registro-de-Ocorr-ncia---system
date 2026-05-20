@@ -66,12 +66,10 @@ def tela_novo_chamado():
     motivos_lista = [r[0] for r in cur.fetchall()]
     conn.close()
 
-    st.markdown("#### Tipo da Nota")
-    tipo_nota = st.selectbox(
-        "Tipo da Nota *",
+     tipo_nota = st.selectbox(
+        "#### Tipo da Nota *",
         ["", "Compra", "Venda"],
-        key="tipo_nota_select",
-        label_visibility="collapsed"
+        key="tipo_nota_select"
     )
 
     if not tipo_nota:
