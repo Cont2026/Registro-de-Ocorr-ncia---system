@@ -1,0 +1,15 @@
+# Banco de dados
+database/ro.db
+
+# Uploads dos chamados
+uploads/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
