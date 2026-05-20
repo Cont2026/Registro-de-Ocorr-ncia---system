@@ -8,10 +8,6 @@ DB_PATH = "database/ro.db"
 def get_conn():
     return sqlite3.connect(DB_PATH)
 
-# =============================================
-# GERAR PROTOCOLO AUTOMÁTICO
-# =============================================
-
 def gerar_protocolo():
     conn = get_conn()
     cur = conn.cursor()
@@ -20,10 +16,6 @@ def gerar_protocolo():
     conn.close()
     agora = datetime.now()
     return f"RO-{agora.strftime('%Y%m')}-{str(total + 1).zfill(4)}"
-
-# =============================================
-# VERIFICAR BLOQUEIO DE PRAZO
-# =============================================
 
 def verificar_bloqueio(data_entrada):
     agora = datetime.now()
@@ -61,10 +53,6 @@ def verificar_bloqueio(data_entrada):
 
     return False, ""
 
-# =============================================
-# TELA NOVO CHAMADO
-# =============================================
-
 def tela_novo_chamado():
     st.title("➕ Novo Chamado")
     st.markdown("Preencha todos os campos obrigatórios para registrar a ocorrência.")
@@ -78,7 +66,6 @@ def tela_novo_chamado():
     motivos_lista = [r[0] for r in cur.fetchall()]
     conn.close()
 
-    # Tipo da Nota fora do form para renderização condicional
     st.markdown("#### Tipo da Nota")
     tipo_nota = st.selectbox(
         "Tipo da Nota *",
@@ -91,16 +78,15 @@ def tela_novo_chamado():
         st.info("Selecione o tipo da nota para continuar o preenchimento.")
         return
 
-    # Campos condicionais por tipo de nota
     data_entrada = None
     data_saida = None
     data_negociacao = None
 
-   if tipo_nota == "Compra":
+    if tipo_nota == "Compra":
         st.markdown("#### 📥 Data da Nota")
         data_entrada = st.date_input("Data da Nota *", value=None, key="data_entrada")
         data_saida = None
-       
+
     elif tipo_nota == "Venda":
         st.markdown("#### 🤝 Data de Negociação")
         data_negociacao = st.date_input("Data de Negociação *", value=None, key="data_negociacao")
@@ -139,7 +125,7 @@ def tela_novo_chamado():
         if not valor.strip(): erros.append("Valor")
 
         if tipo_nota == "Compra" and data_entrada is None:
-            erros.append("Data de Entrada")
+            erros.append("Data da Nota")
         if tipo_nota == "Venda" and data_negociacao is None:
             erros.append("Data de Negociação")
 
@@ -153,7 +139,6 @@ def tela_novo_chamado():
                 st.error(msg_bloqueio)
                 return
 
-        # Salvar arquivo
         arquivo_nome = None
         if arquivo:
             os.makedirs("uploads", exist_ok=True)
@@ -161,7 +146,6 @@ def tela_novo_chamado():
             with open(f"uploads/{arquivo_nome}", "wb") as f:
                 f.write(arquivo.getbuffer())
 
-        # Converter valor
         try:
             valor_float = float(valor.replace(".", "").replace(",", "."))
         except:
@@ -196,10 +180,6 @@ def tela_novo_chamado():
 
         st.success(f"✅ Chamado registrado com sucesso! Protocolo: **{protocolo}**")
         st.balloons()
-
-# =============================================
-# TELA MEUS CHAMADOS (setor)
-# =============================================
 
 def tela_meus_chamados():
     st.title("📋 Meus Chamados")
@@ -237,10 +217,6 @@ def tela_meus_chamados():
             col2.markdown(f"**Motivo:** {motivo}")
             col3.markdown(f"**Prioridade:** {prioridade}")
             st.markdown(f"**Aberto em:** {aberto_em}")
-
-# =============================================
-# TELA TODOS OS CHAMADOS (contabilidade)
-# =============================================
 
 def tela_todos_chamados():
     st.title("📋 Todos os Chamados")
