@@ -96,14 +96,11 @@ def tela_novo_chamado():
     data_saida = None
     data_negociacao = None
 
-    if tipo_nota == "Compra":
-        st.markdown("#### 📥 Data de Entrada / Saída")
-        col_d1, col_d2 = st.columns(2)
-        with col_d1:
-            data_entrada = st.date_input("Data de Entrada *", value=None, key="data_entrada")
-        with col_d2:
-            data_saida = st.date_input("Data de Saída", value=None, key="data_saida")
-
+   if tipo_nota == "Compra":
+        st.markdown("#### 📥 Data da Nota")
+        data_entrada = st.date_input("Data da Nota *", value=None, key="data_entrada")
+        data_saida = None
+       
     elif tipo_nota == "Venda":
         st.markdown("#### 🤝 Data de Negociação")
         data_negociacao = st.date_input("Data de Negociação *", value=None, key="data_negociacao")
