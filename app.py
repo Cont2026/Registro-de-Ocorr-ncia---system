@@ -147,4 +147,43 @@ def pagina_calendario():
     st.title("📅 Calendário de Fechamento")
     st.info("Em construção — próximo passo.")
 
-def p
+def pagina_admin():
+    st.title("⚙️ Administração")
+    st.info("Em construção — próximo passo.")
+
+# =============================================
+# ROTEADOR
+# =============================================
+
+def main():
+    init_db()
+
+    if not st.session_state.logado:
+        tela_login()
+        return
+
+    if "pagina" not in st.session_state:
+        if st.session_state.perfil == "contabilidade":
+            st.session_state.pagina = "dashboard"
+        else:
+            st.session_state.pagina = "novo_chamado"
+
+    sidebar()
+
+    pagina = st.session_state.pagina
+
+    if pagina == "dashboard":
+        pagina_dashboard()
+    elif pagina == "todos_chamados":
+        pagina_todos_chamados()
+    elif pagina == "meus_chamados":
+        pagina_meus_chamados()
+    elif pagina == "novo_chamado":
+        pagina_novo_chamado()
+    elif pagina == "calendario":
+        pagina_calendario()
+    elif pagina == "admin":
+        pagina_admin()
+
+if __name__ == "__main__":
+    main()
