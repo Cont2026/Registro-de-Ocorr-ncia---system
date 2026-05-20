@@ -14,14 +14,14 @@ CREATE TABLE IF NOT EXISTS usuarios (
     criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- TIPOS DE INCONSISTÊNCIA (gerenciado pela contabilidade)
+-- TIPOS DE INCONSISTÊNCIA
 CREATE TABLE IF NOT EXISTS tipos_inconsistencia (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nome TEXT NOT NULL UNIQUE,
     ativo INTEGER DEFAULT 1
 );
 
--- MOTIVOS (gerenciado pela contabilidade)
+-- MOTIVOS
 CREATE TABLE IF NOT EXISTS motivos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nome TEXT NOT NULL UNIQUE,
@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS motivos (
 );
 
 -- CHAMADOS
-CREATE TABLE IF NOT EXISTS chamados (
+DROP TABLE IF EXISTS chamados;
+CREATE TABLE chamados (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     protocolo TEXT NOT NULL UNIQUE,
     setor TEXT NOT NULL,
@@ -40,8 +41,8 @@ CREATE TABLE IF NOT EXISTS chamados (
     nf_retorna TEXT NOT NULL CHECK(nf_retorna IN ('Retornará','Não retornará')),
     nome_parceiro TEXT NOT NULL,
     numero_nota TEXT NOT NULL,
-    data_entrada DATE,
     tipo_nota TEXT CHECK(tipo_nota IN ('Compra','Venda')),
+    data_entrada DATE,
     data_saida DATE,
     data_negociacao DATE,
     valor REAL NOT NULL,
@@ -69,11 +70,9 @@ CREATE TABLE IF NOT EXISTS calendario_fechamento (
 -- DADOS INICIAIS
 -- =============================================
 
--- Usuário contabilidade
 INSERT OR IGNORE INTO usuarios (nome, login, senha, perfil)
 VALUES ('Contabilidade', 'contabilidade', 'roc2024', 'contabilidade');
 
--- Setores
 INSERT OR IGNORE INTO usuarios (nome, login, senha, perfil) VALUES ('Adm Logistica King','adm.logistica.king','setor123','setor');
 INSERT OR IGNORE INTO usuarios (nome, login, senha, perfil) VALUES ('Administrativo','administrativo','setor123','setor');
 INSERT OR IGNORE INTO usuarios (nome, login, senha, perfil) VALUES ('Comercial','comercial','setor123','setor');
@@ -86,7 +85,6 @@ INSERT OR IGNORE INTO usuarios (nome, login, senha, perfil) VALUES ('Logistica K
 INSERT OR IGNORE INTO usuarios (nome, login, senha, perfil) VALUES ('Logistica Pisa','logistica.pisa','setor123','setor');
 INSERT OR IGNORE INTO usuarios (nome, login, senha, perfil) VALUES ('Marketing','marketing','setor123','setor');
 
--- Tipos de inconsistência
 INSERT OR IGNORE INTO tipos_inconsistencia (nome) VALUES ('Descontabilização');
 INSERT OR IGNORE INTO tipos_inconsistencia (nome) VALUES ('Correção');
 INSERT OR IGNORE INTO tipos_inconsistencia (nome) VALUES ('Alteração Natureza');
@@ -100,7 +98,6 @@ INSERT OR IGNORE INTO tipos_inconsistencia (nome) VALUES ('Custo');
 INSERT OR IGNORE INTO tipos_inconsistencia (nome) VALUES ('Exclusão');
 INSERT OR IGNORE INTO tipos_inconsistencia (nome) VALUES ('Atraso fechamento');
 
--- Motivos
 INSERT OR IGNORE INTO motivos (nome) VALUES ('Parceiro incorreto');
 INSERT OR IGNORE INTO motivos (nome) VALUES ('Valor incorreto');
 INSERT OR IGNORE INTO motivos (nome) VALUES ('Documento fora do prazo');
