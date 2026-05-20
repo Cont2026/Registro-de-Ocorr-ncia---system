@@ -87,7 +87,7 @@ def tela_login():
 
 def sidebar():
     with st.sidebar:
-        st.markdown(f"""
+        st.markdown("""
             <div style='padding: 12px 0 20px;'>
                 <h2 style='font-size:1.3rem; font-weight:700; margin:0;'>RO</h2>
                 <p style='color:gray; font-size:0.8rem; margin:2px 0 0;'>Registro de Ocorrências</p>
@@ -124,23 +124,21 @@ def sidebar():
             st.rerun()
 
 # =============================================
+# IMPORTAR MÓDULOS
+# =============================================
+
+from modules.chamados import (
+    tela_novo_chamado,
+    tela_meus_chamados,
+    tela_todos_chamados
+)
+
+# =============================================
 # PÁGINAS PLACEHOLDER
 # =============================================
 
 def pagina_dashboard():
     st.title("📊 Dashboard")
-    st.info("Em construção — próximo passo.")
-
-def pagina_todos_chamados():
-    st.title("📋 Todos os Chamados")
-    st.info("Em construção — próximo passo.")
-
-def pagina_meus_chamados():
-    st.title("📋 Meus Chamados")
-    st.info("Em construção — próximo passo.")
-
-def pagina_novo_chamado():
-    st.title("➕ Novo Chamado")
     st.info("Em construção — próximo passo.")
 
 def pagina_calendario():
@@ -175,11 +173,11 @@ def main():
     if pagina == "dashboard":
         pagina_dashboard()
     elif pagina == "todos_chamados":
-        pagina_todos_chamados()
+        tela_todos_chamados()
     elif pagina == "meus_chamados":
-        pagina_meus_chamados()
+        tela_meus_chamados()
     elif pagina == "novo_chamado":
-        pagina_novo_chamado()
+        tela_novo_chamado()
     elif pagina == "calendario":
         pagina_calendario()
     elif pagina == "admin":
