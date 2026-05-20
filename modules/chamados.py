@@ -1,9 +1,12 @@
 import streamlit as st
 import sqlite3
 import os
+import calendar
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
 
 DB_PATH = "database/ro.db"
+BRASILIA = ZoneInfo("America/Sao_Paulo")
 
 def get_conn():
     return sqlite3.connect(DB_PATH)
@@ -14,36 +17,36 @@ def gerar_protocolo():
     cur.execute("SELECT COUNT(*) FROM chamados")
     total = cur.fetchone()[0]
     conn.close()
-    agora = datetime.now()
+    agora = datetime.now(BRASILIA)
     return f"RO-{agora.strftime('%Y%m')}-{str(total + 1).zfill(4)}"
 
-def verificar_bloqueio(data_entrada):
-    agora = datetime.now()
-    if agora.hour > 17 or (agora.hour == 17 and agora.minute >= 48):
-        return True, "⛔ Fora do horário de atendimento. O sistema aceita chamados até as 17h48."
-    if agora.day == 31 or (agora.month in [4,6,9,11] and agora.day == 30) or \
-       (agora.month == 2 and agora.day in [28,29]):
-        return True, "⛔ Não é possível abrir chamados no último dia do mês."
-    if data_entrada:
-        mes_nota = data_entrada.month
-        ano_nota = data_entrada.year
-        mes_atual = agora.month
-        ano_atual = agora.year
-        if (ano_atual > ano_nota) or (ano_atual == ano_nota and mes_atual > mes_nota):
-            dia = 1
-            dias_uteis = 0
-            while dias_uteis < 2:
-                d = date(ano_atual, mes_atual, dia)
-                if d.weekday() < 5:
-                    dias_uteis += 1
-                if dias_uteis < 2:
-                    dia += 1
-            segundo_dia_util = date(ano_atual, mes_atual, dia)
-            hoje = agora.date()
-            if hoje > segundo_dia_util:
-                return True, f"⛔ Prazo encerrado. Notas de {data_entrada.strftime('%m/%Y')} não são aceitas após o 2° dia útil de {segundo_dia_util.strftime('%m/%Y')} ({segundo_dia_util.strftime('%d/%m/%Y')})."
-            elif hoje == segundo_dia_util and agora.hour >= 12:
-                return True, f"⛔ Prazo encerrado. No 2° dia útil do mês, notas do mês anterior não são aceitas após as 12h."
+def verificar_bloqueio(data_nota):
+    agora = datetime.now(BRASILIA)
+    hoje = agora.date()
+
+    if data_nota is None:
+        return False, ""
+
+    mes_nota = data_nota.month
+    ano_nota = data_nota.year
+    mes_atual = hoje.month
+    ano_atual = hoje.year
+
+    # Chamados do mês atual sempre permitidos
+    if ano_nota == ano_atual and mes_nota == mes_atual:
+        return False, ""
+
+    # Chamados de competências mais antigas que o mês anterior: sempre bloqueados
+    if (ano_nota < ano_atual) or (ano_nota == ano_atual and mes_nota < mes_atual - 1):
+        return True, "⛔ O prazo para solicitações da competência selecionada foi encerrado conforme regra de fechamento contábil."
+
+    # Chamados do mês anterior: permitidos até o último dia do mês atual às 17h48
+    ultimo_dia = calendar.monthrange(ano_atual, mes_atual)[1]
+    prazo_final = datetime(ano_atual, mes_atual, ultimo_dia, 17, 48, 0, tzinfo=BRASILIA)
+
+    if agora > prazo_final:
+        return True, "⛔ O prazo para solicitações da competência selecionada foi encerrado conforme regra de fechamento contábil."
+
     return False, ""
 
 def tela_novo_chamado():
@@ -112,16 +115,17 @@ def tela_novo_chamado():
             st.error(f"⚠️ Preencha os campos obrigatórios: {', '.join(erros)}")
             return
 
-        if tipo_nota == "Compra":
-            bloqueado, msg_bloqueio = verificar_bloqueio(data_entrada)
-            if bloqueado:
-                st.error(msg_bloqueio)
-                return
+        # Verificar bloqueio de competência
+        data_referencia = data_entrada if tipo_nota == "Compra" else data_negociacao
+        bloqueado, msg_bloqueio = verificar_bloqueio(data_referencia)
+        if bloqueado:
+            st.error(msg_bloqueio)
+            return
 
         arquivo_nome = None
         if arquivo:
             os.makedirs("uploads", exist_ok=True)
-            arquivo_nome = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{arquivo.name}"
+            arquivo_nome = f"{datetime.now(BRASILIA).strftime('%Y%m%d%H%M%S')}_{arquivo.name}"
             with open(f"uploads/{arquivo_nome}", "wb") as f:
                 f.write(arquivo.getbuffer())
 
@@ -149,7 +153,7 @@ def tela_novo_chamado():
             data_saida.strftime("%Y-%m-%d") if data_saida else None,
             data_negociacao.strftime("%Y-%m-%d") if data_negociacao else None,
             valor_float, observacao.strip(), arquivo_nome, "Aberto",
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S")
         ))
         conn.commit()
         conn.close()
@@ -241,7 +245,7 @@ def tela_todos_chamados():
             )
             resolucao = st.text_area("Resolução / Observação", key=f"res_{protocolo}")
             if st.button("💾 Salvar", key=f"salvar_{protocolo}"):
-                agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                agora = datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S")
                 conn = get_conn()
                 cur = conn.cursor()
                 cur.execute("""
