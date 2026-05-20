@@ -19,20 +19,16 @@ def gerar_protocolo():
 
 def verificar_bloqueio(data_entrada):
     agora = datetime.now()
-
     if agora.hour > 17 or (agora.hour == 17 and agora.minute >= 48):
         return True, "⛔ Fora do horário de atendimento. O sistema aceita chamados até as 17h48."
-
     if agora.day == 31 or (agora.month in [4,6,9,11] and agora.day == 30) or \
        (agora.month == 2 and agora.day in [28,29]):
         return True, "⛔ Não é possível abrir chamados no último dia do mês."
-
     if data_entrada:
         mes_nota = data_entrada.month
         ano_nota = data_entrada.year
         mes_atual = agora.month
         ano_atual = agora.year
-
         if (ano_atual > ano_nota) or (ano_atual == ano_nota and mes_atual > mes_nota):
             dia = 1
             dias_uteis = 0
@@ -42,15 +38,12 @@ def verificar_bloqueio(data_entrada):
                     dias_uteis += 1
                 if dias_uteis < 2:
                     dia += 1
-
             segundo_dia_util = date(ano_atual, mes_atual, dia)
             hoje = agora.date()
-
             if hoje > segundo_dia_util:
                 return True, f"⛔ Prazo encerrado. Notas de {data_entrada.strftime('%m/%Y')} não são aceitas após o 2° dia útil de {segundo_dia_util.strftime('%m/%Y')} ({segundo_dia_util.strftime('%d/%m/%Y')})."
             elif hoje == segundo_dia_util and agora.hour >= 12:
                 return True, f"⛔ Prazo encerrado. No 2° dia útil do mês, notas do mês anterior não são aceitas após as 12h."
-
     return False, ""
 
 def tela_novo_chamado():
@@ -66,11 +59,7 @@ def tela_novo_chamado():
     motivos_lista = [r[0] for r in cur.fetchall()]
     conn.close()
 
-     tipo_nota = st.selectbox(
-        "#### Tipo da Nota *",
-        ["", "Compra", "Venda"],
-        key="tipo_nota_select"
-    )
+    tipo_nota = st.selectbox("Tipo da Nota *", ["", "Compra", "Venda"], key="tipo_nota_select")
 
     if not tipo_nota:
         st.info("Selecione o tipo da nota para continuar o preenchimento.")
@@ -81,26 +70,20 @@ def tela_novo_chamado():
     data_negociacao = None
 
     if tipo_nota == "Compra":
-        st.markdown("#### 📥 Data da Nota")
-        data_entrada = st.date_input("Data da Nota *", value=None, key="data_entrada")
-        data_saida = None
-
+        data_entrada = st.date_input("📥 Data da Nota *", value=None, key="data_entrada")
     elif tipo_nota == "Venda":
-        st.markdown("#### 🤝 Data de Negociação")
-        data_negociacao = st.date_input("Data de Negociação *", value=None, key="data_negociacao")
+        data_negociacao = st.date_input("🤝 Data de Negociação *", value=None, key="data_negociacao")
 
     st.markdown("---")
 
     with st.form("form_chamado", clear_on_submit=True):
         col1, col2 = st.columns(2)
-
         with col1:
             empresa = st.selectbox("🏢 Empresa *", ["", "1", "2", "6", "13", "14"])
             tipo = st.selectbox("📌 Tipo de Inconsistência *", [""] + tipos)
             motivo = st.selectbox("🔍 Motivo *", [""] + motivos_lista)
             prioridade = st.selectbox("🚦 Prioridade *", ["Normal", "Urgente"])
             nf_retorna = st.selectbox("🔄 NF retornará ao sistema? *", ["", "Retornará", "Não retornará"])
-
         with col2:
             nome_parceiro = st.text_input("👤 Nome do Parceiro *")
             numero_nota = st.text_input("📄 Número da Nota *")
@@ -108,7 +91,6 @@ def tela_novo_chamado():
             arquivo = st.file_uploader("📎 Anexo (opcional)", type=["pdf","png","jpg","xlsx","xml"])
 
         observacao = st.text_area("📝 Observação Complementar", placeholder="Informações adicionais...")
-
         st.markdown("---")
         enviar = st.form_submit_button("📨 Enviar Chamado", use_container_width=True)
 
@@ -121,7 +103,6 @@ def tela_novo_chamado():
         if not nome_parceiro.strip(): erros.append("Nome do Parceiro")
         if not numero_nota.strip(): erros.append("Número da Nota")
         if not valor.strip(): erros.append("Valor")
-
         if tipo_nota == "Compra" and data_entrada is None:
             erros.append("Data da Nota")
         if tipo_nota == "Venda" and data_negociacao is None:
@@ -161,16 +142,13 @@ def tela_novo_chamado():
                 valor, observacao, arquivo_nome, status, aberto_em
             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
-            protocolo,
-            st.session_state.setor,
+            protocolo, st.session_state.setor,
             empresa, tipo, motivo, prioridade, nf_retorna,
-            nome_parceiro.strip(), numero_nota.strip(),
-            tipo_nota,
+            nome_parceiro.strip(), numero_nota.strip(), tipo_nota,
             data_entrada.strftime("%Y-%m-%d") if data_entrada else None,
             data_saida.strftime("%Y-%m-%d") if data_saida else None,
             data_negociacao.strftime("%Y-%m-%d") if data_negociacao else None,
-            valor_float, observacao.strip(),
-            arquivo_nome, "Aberto",
+            valor_float, observacao.strip(), arquivo_nome, "Aberto",
             datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         ))
         conn.commit()
@@ -188,8 +166,7 @@ def tela_meus_chamados():
     cur.execute("""
         SELECT protocolo, tipo_inconsistencia, motivo, empresa,
                status, prioridade, aberto_em
-        FROM chamados
-        WHERE setor = ?
+        FROM chamados WHERE setor = ?
         ORDER BY aberto_em DESC
     """, (st.session_state.setor,))
     rows = cur.fetchall()
@@ -199,12 +176,7 @@ def tela_meus_chamados():
         st.info("Nenhum chamado registrado ainda.")
         return
 
-    status_cor = {
-        "Aberto": "🔴",
-        "Em andamento": "🟡",
-        "Resolvido": "🟢",
-        "Cancelado": "⚫"
-    }
+    status_cor = {"Aberto": "🔴", "Em andamento": "🟡", "Resolvido": "🟢", "Cancelado": "⚫"}
 
     for row in rows:
         protocolo, tipo, motivo, empresa, status, prioridade, aberto_em = row
@@ -225,8 +197,7 @@ def tela_todos_chamados():
     cur.execute("""
         SELECT protocolo, setor, tipo_inconsistencia, motivo,
                empresa, status, prioridade, aberto_em
-        FROM chamados
-        ORDER BY aberto_em DESC
+        FROM chamados ORDER BY aberto_em DESC
     """)
     rows = cur.fetchall()
     conn.close()
@@ -243,16 +214,10 @@ def tela_todos_chamados():
     with col3:
         filtro_setor = st.text_input("Filtrar por setor")
 
-    status_cor = {
-        "Aberto": "🔴",
-        "Em andamento": "🟡",
-        "Resolvido": "🟢",
-        "Cancelado": "⚫"
-    }
+    status_cor = {"Aberto": "🔴", "Em andamento": "🟡", "Resolvido": "🟢", "Cancelado": "⚫"}
 
     for row in rows:
         protocolo, setor, tipo, motivo, empresa, status, prioridade, aberto_em = row
-
         if filtro_status != "Todos" and status != filtro_status:
             continue
         if filtro_empresa != "Todas" and empresa != filtro_empresa:
