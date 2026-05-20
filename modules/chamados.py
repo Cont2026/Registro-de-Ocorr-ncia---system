@@ -78,7 +78,7 @@ def tela_novo_chamado():
     motivos_lista = [r[0] for r in cur.fetchall()]
     conn.close()
 
-    # ── Tipo da Nota fora do form para renderização condicional ──
+    # Tipo da Nota fora do form para renderização condicional
     st.markdown("#### Tipo da Nota")
     tipo_nota = st.selectbox(
         "Tipo da Nota *",
@@ -91,7 +91,7 @@ def tela_novo_chamado():
         st.info("Selecione o tipo da nota para continuar o preenchimento.")
         return
 
-    # ── Campos condicionais fora do form ──
+    # Campos condicionais por tipo de nota
     data_entrada = None
     data_saida = None
     data_negociacao = None
@@ -123,7 +123,6 @@ def tela_novo_chamado():
         with col2:
             nome_parceiro = st.text_input("👤 Nome do Parceiro *")
             numero_nota = st.text_input("📄 Número da Nota *")
-            competencia = st.text_input("📅 Competência *", placeholder="MM/AAAA")
             valor = st.text_input("💰 Valor *", placeholder="0,00")
             arquivo = st.file_uploader("📎 Anexo (opcional)", type=["pdf","png","jpg","xlsx","xml"])
 
@@ -140,10 +139,8 @@ def tela_novo_chamado():
         if not nf_retorna: erros.append("NF retornará ao sistema")
         if not nome_parceiro.strip(): erros.append("Nome do Parceiro")
         if not numero_nota.strip(): erros.append("Número da Nota")
-        if not competencia.strip(): erros.append("Competência")
         if not valor.strip(): erros.append("Valor")
 
-        # Validação condicional por tipo de nota
         if tipo_nota == "Compra" and data_entrada is None:
             erros.append("Data de Entrada")
         if tipo_nota == "Venda" and data_negociacao is None:
@@ -153,7 +150,6 @@ def tela_novo_chamado():
             st.error(f"⚠️ Preencha os campos obrigatórios: {', '.join(erros)}")
             return
 
-        # Verificar bloqueio de prazo (apenas para Compra, que tem data de entrada)
         if tipo_nota == "Compra":
             bloqueado, msg_bloqueio = verificar_bloqueio(data_entrada)
             if bloqueado:
@@ -182,16 +178,15 @@ def tela_novo_chamado():
             INSERT INTO chamados (
                 protocolo, setor, empresa, tipo_inconsistencia, motivo,
                 prioridade, nf_retorna, nome_parceiro, numero_nota,
-                competencia, tipo_nota, data_entrada, data_saida,
-                data_negociacao, valor, observacao, arquivo_nome,
-                status, aberto_em
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                tipo_nota, data_entrada, data_saida, data_negociacao,
+                valor, observacao, arquivo_nome, status, aberto_em
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             protocolo,
             st.session_state.setor,
             empresa, tipo, motivo, prioridade, nf_retorna,
             nome_parceiro.strip(), numero_nota.strip(),
-            competencia.strip(), tipo_nota,
+            tipo_nota,
             data_entrada.strftime("%Y-%m-%d") if data_entrada else None,
             data_saida.strftime("%Y-%m-%d") if data_saida else None,
             data_negociacao.strftime("%Y-%m-%d") if data_negociacao else None,
