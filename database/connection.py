@@ -36,21 +36,12 @@ def init_db():
         """)
 
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS motivos (
-                id SERIAL PRIMARY KEY,
-                nome TEXT NOT NULL UNIQUE,
-                ativo INTEGER DEFAULT 1
-            )
-        """)
-
-        cur.execute("""
             CREATE TABLE IF NOT EXISTS chamados (
                 id SERIAL PRIMARY KEY,
                 protocolo TEXT NOT NULL UNIQUE,
                 setor TEXT NOT NULL,
                 empresa TEXT NOT NULL,
                 tipo_inconsistencia TEXT NOT NULL,
-                motivo TEXT NOT NULL,
                 prioridade TEXT NOT NULL,
                 nf_retorna TEXT NOT NULL,
                 nome_parceiro TEXT NOT NULL,
@@ -70,14 +61,33 @@ def init_db():
             )
         """)
 
+        # Nova estrutura do calendário
+        cur.execute("DROP TABLE IF EXISTS calendario_fechamento")
+
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS calendario_fechamento (
+            CREATE TABLE IF NOT EXISTS competencias (
                 id SERIAL PRIMARY KEY,
                 mes_ano TEXT NOT NULL,
-                importacao_1 DATE,
-                importacao_2 DATE,
-                importacao_3 DATE,
-                fechamento DATE,
+                ano INTEGER NOT NULL,
+                mes INTEGER NOT NULL,
+                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS fechamentos (
+                id SERIAL PRIMARY KEY,
+                competencia_id INTEGER NOT NULL REFERENCES competencias(id) ON DELETE CASCADE,
+                tipo TEXT NOT NULL CHECK(tipo IN (
+                    'Fechamento Parcial 1',
+                    'Fechamento Parcial 2',
+                    'Fechamento Parcial 3',
+                    'Fechamento Consolidado Corporativo'
+                )),
+                data_fechamento DATE,
+                periodo_inicio DATE,
+                periodo_fim DATE,
+                observacao TEXT,
                 criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -111,13 +121,6 @@ def init_db():
         ]
         for t in tipos:
             cur.execute("INSERT INTO tipos_inconsistencia (nome) VALUES (%s) ON CONFLICT (nome) DO NOTHING", (t,))
-
-        motivos = [
-            'Parceiro incorreto', 'Valor incorreto', 'Documento fora do prazo',
-            'Divergência de XML', 'Duplicidade', 'Erro de importação'
-        ]
-        for m in motivos:
-            cur.execute("INSERT INTO motivos (nome) VALUES (%s) ON CONFLICT (nome) DO NOTHING", (m,))
 
         conn.commit()
 
