@@ -65,7 +65,7 @@ st.markdown("""
             color: #041747 !important;
             border-color: #FAC318 !important;
         }
-       section[data-testid="stSidebar"] > div:first-child {
+        section[data-testid="stSidebar"] > div:first-child {
             padding-top: 0 !important;
         }
         section[data-testid="stSidebar"] > div > div:first-child {
@@ -75,12 +75,13 @@ st.markdown("""
         section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
             padding-top: 0 !important;
             gap: 0 !important;
-        }        .login-card {
+        }
+        .login-card {
             background: white;
             border-radius: 16px;
             padding: 40px;
             box-shadow: 0 4px 24px rgba(4,23,71,0.10);
-            border-top: 4px solid #FAC318;
+            border-top: 4px solid #041747;
         }
         div[data-testid="metric-container"] {
             background: white;
@@ -118,16 +119,23 @@ if "logado" not in st.session_state:
     st.session_state.perfil = None
     st.session_state.setor = None
 
-def carregar_logo():
+def carregar_logo_branca():
     try:
         with open("assets/LOGO-GRUPO-LLE-BRANCO.png", "rb") as f:
             return base64.b64encode(f.read()).decode()
     except:
         return None
 
+def carregar_logo_colorida():
+    try:
+        with open("assets/LOGO-GRUPO-LLE-COR-OFICIAL-PRINCIPAL.png", "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except:
+        return None
+
 def tela_login():
-    logo_b64 = carregar_logo()
-    logo_html = f"<img src='data:image/png;base64,{logo_b64}' style='width:160px; margin-bottom:16px;'/>" if logo_b64 else ""
+    logo_b64 = carregar_logo_colorida()
+    logo_html = f"<img src='data:image/png;base64,{logo_b64}' style='width:200px; display:block; margin:0 auto 8px;'/>" if logo_b64 else ""
     col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
         st.markdown("<br><br>", unsafe_allow_html=True)
@@ -136,7 +144,8 @@ def tela_login():
                 <div style='text-align:center; margin-bottom:32px;'>
                     {logo_html}
                     <p style='font-family:Montserrat,sans-serif; font-weight:800;
-                    font-size:2.2rem; letter-spacing:6px; color:#FAC318; margin:0 0 8px;'>ROC</p>
+                    font-size:2.2rem; letter-spacing:6px; color:#041747;
+                    margin:20px 0 8px;'>ROC</p>
                     <p style='font-family:Montserrat,sans-serif; font-weight:600;
                     font-size:0.95rem; color:#041747; margin:0;'>Registro de Ocorrências Contábeis</p>
                     <p style='font-family:Montserrat,sans-serif; font-weight:300;
@@ -168,7 +177,7 @@ def tela_login():
                 st.error("Usuário ou senha incorretos.")
 
 def sidebar():
-    logo_b64 = carregar_logo()
+    logo_b64 = carregar_logo_branca()
     with st.sidebar:
         if logo_b64:
             st.markdown(f"""
