@@ -68,14 +68,11 @@ def inserir_cabecalho_relatorio(ws, titulo):
     ws.row_dimensions[2].height = 20
     ws.row_dimensions[3].height = 18
     ws.row_dimensions[4].height = 16
-
     ws["E1"] = titulo
     ws["E1"].font = Font(name="Calibri", bold=True, size=14, color="041747")
     ws["E1"].alignment = Alignment(vertical="center")
-
     ws["E2"] = "Grupo LLE"
     ws["E2"].font = Font(name="Calibri", size=11, color="0071FE", bold=True)
-
     ws["E3"] = f"Gerado em: {datetime.now(BRASILIA).strftime('%d/%m/%Y às %H:%M')}"
     ws["E3"].font = Font(name="Calibri", size=10, color="999999")
 
@@ -86,7 +83,7 @@ def tela_dashboard():
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-        SELECT protocolo, setor, empresa, tipo_inconsistencia, motivo,
+        SELECT protocolo, setor, empresa, tipo_inconsistencia,
                prioridade, status, aberto_em, atendido_em, resolvido_em
         FROM chamados ORDER BY aberto_em DESC
     """)
@@ -99,7 +96,7 @@ def tela_dashboard():
         return
 
     df = pd.DataFrame(rows, columns=[
-        "protocolo", "setor", "empresa", "tipo", "motivo",
+        "protocolo", "setor", "empresa", "tipo",
         "prioridade", "status", "aberto_em", "atendido_em", "resolvido_em"
     ])
 
@@ -195,7 +192,7 @@ def tela_dashboard():
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-        SELECT protocolo, setor, empresa, tipo_inconsistencia, motivo,
+        SELECT protocolo, setor, empresa, tipo_inconsistencia,
                prioridade, nf_retorna, nome_parceiro, numero_nota,
                tipo_nota, data_entrada, data_saida, data_negociacao,
                valor, observacao, status, aberto_em, atendido_em,
@@ -207,7 +204,7 @@ def tela_dashboard():
     conn.close()
 
     df_export = pd.DataFrame(todos, columns=[
-        "Protocolo", "Setor", "Empresa", "Tipo Inconsistência", "Motivo",
+        "Protocolo", "Setor", "Empresa", "Abertura de Período / Descontabilização",
         "Prioridade", "NF Retorna", "Parceiro", "Número Nota",
         "Tipo Nota", "Data Entrada", "Data Saída", "Data Negociação",
         "Valor", "Observação", "Status", "Aberto Em", "Atendido Em",
@@ -219,7 +216,7 @@ def tela_dashboard():
         "Valor": [total, abertos, em_andamento, resolvidos,
                   f"{tempo_medio:.1f}" if not pd.isna(tempo_medio) else "—"]
     })
-    df_tipo_exp = df_f.groupby("tipo").size().reset_index(name="Quantidade").sort_values("Quantidade", ascending=False).rename(columns={"tipo": "Tipo de Inconsistência"})
+    df_tipo_exp = df_f.groupby("tipo").size().reset_index(name="Quantidade").sort_values("Quantidade", ascending=False).rename(columns={"tipo": "Abertura de Período / Descontabilização"})
     df_setor_exp = df_f.groupby("setor").size().reset_index(name="Quantidade").sort_values("Quantidade", ascending=False).rename(columns={"setor": "Setor"})
     df_empresa_exp = df_f.groupby("empresa").size().reset_index(name="Quantidade").rename(columns={"empresa": "Empresa"})
     df_status_exp = df_f.groupby("status").size().reset_index(name="Quantidade").rename(columns={"status": "Status"})
@@ -227,7 +224,6 @@ def tela_dashboard():
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
 
-        # ── ABA CHAMADOS ──
         df_export.to_excel(writer, index=False, sheet_name="Chamados", startrow=6)
         ws1 = writer.sheets["Chamados"]
         inserir_cabecalho_relatorio(ws1, "ROC — Registro de Ocorrências Contábeis")
@@ -237,14 +233,13 @@ def tela_dashboard():
         ajustar_colunas(ws1)
         ws1.freeze_panes = "A8"
 
-        # ── ABA DASHBOARD ──
         ws2 = writer.book.create_sheet("Dashboard")
         writer.sheets["Dashboard"] = ws2
         inserir_cabecalho_relatorio(ws2, "ROC — Dashboard Operacional")
 
         secoes = [
             ("📊 KPIs", df_kpi, "kpi", False),
-            ("📌 Por Tipo de Inconsistência", df_tipo_exp, "tipo", True),
+            ("📌 Por Tipo", df_tipo_exp, "tipo", True),
             ("🏢 Por Setor", df_setor_exp, "setor", True),
             ("🏭 Por Empresa", df_empresa_exp, "empresa", True),
             ("🔘 Por Status", df_status_exp, "status", True),
