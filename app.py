@@ -1,18 +1,61 @@
 import streamlit as st
-import os
 from datetime import datetime
 from database.connection import get_conn, init_db
 
-# =============================================
-# CONFIGURAÇÃO DA PÁGINA
-# =============================================
-
 st.set_page_config(
-    page_title="RO - Registro de Ocorrências",
+    page_title="ROC - Registro de Ocorrências Contábeis",
     page_icon="📋",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# =============================================
+# FONTE POPPINS
+# =============================================
+
+st.markdown("""
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Inter:wght@400;500&display=swap');
+
+        html, body, [class*="css"], .stApp {
+            font-family: 'Poppins', sans-serif !important;
+        }
+        h1, h2, h3, h4, h5, h6 {
+            font-family: 'Poppins', sans-serif !important;
+            font-weight: 600 !important;
+        }
+        .stDataFrame, .stTable {
+            font-family: 'Inter', sans-serif !important;
+        }
+        .stButton > button {
+            font-family: 'Poppins', sans-serif !important;
+            font-weight: 500 !important;
+            border-radius: 8px !important;
+        }
+        .stTextInput > div > input,
+        .stSelectbox > div,
+        .stTextArea > div > textarea {
+            font-family: 'Poppins', sans-serif !important;
+        }
+        .roc-logo {
+            font-family: 'Poppins', sans-serif;
+            font-weight: 700;
+            font-size: 2rem;
+            letter-spacing: 2px;
+            margin: 0;
+        }
+        .roc-subtitle {
+            font-family: 'Poppins', sans-serif;
+            font-weight: 300;
+            font-size: 0.9rem;
+            color: gray;
+            margin: 0;
+        }
+        section[data-testid="stSidebar"] {
+            font-family: 'Poppins', sans-serif !important;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 # =============================================
 # SESSÃO
@@ -34,8 +77,8 @@ def tela_login():
         st.markdown("<br><br>", unsafe_allow_html=True)
         st.markdown("""
             <div style='text-align:center; margin-bottom: 32px;'>
-                <h1 style='font-size:2rem; font-weight:700; margin-bottom:4px;'>RO</h1>
-                <p style='color:gray; font-size:0.95rem;'>Registro de Ocorrências Contábeis</p>
+                <p class='roc-logo'>ROC</p>
+                <p class='roc-subtitle'>Registro de Ocorrências Contábeis</p>
             </div>
         """, unsafe_allow_html=True)
 
@@ -72,8 +115,8 @@ def sidebar():
     with st.sidebar:
         st.markdown("""
             <div style='padding: 12px 0 20px;'>
-                <h2 style='font-size:1.3rem; font-weight:700; margin:0;'>RO</h2>
-                <p style='color:gray; font-size:0.8rem; margin:2px 0 0;'>Registro de Ocorrências</p>
+                <p class='roc-logo' style='font-size:1.5rem;'>ROC</p>
+                <p class='roc-subtitle'>Registro de Ocorrências</p>
             </div>
         """, unsafe_allow_html=True)
 
@@ -84,7 +127,6 @@ def sidebar():
             paginas = {
                 "📊 Dashboard": "dashboard",
                 "📋 Todos os Chamados": "todos_chamados",
-                "➕ Novo Chamado": "novo_chamado",
                 "📅 Calendário": "calendario",
                 "⚙️ Administração": "admin",
             }
@@ -110,14 +152,10 @@ def sidebar():
 # IMPORTAR MÓDULOS
 # =============================================
 
-from modules.chamados import (
-    tela_novo_chamado,
-    tela_meus_chamados,
-    tela_todos_chamados
-)
+from modules.chamados import tela_novo_chamado, tela_meus_chamados, tela_todos_chamados
 
 # =============================================
-# PÁGINAS PLACEHOLDER
+# PÁGINAS
 # =============================================
 
 def pagina_dashboard():
