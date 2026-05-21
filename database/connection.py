@@ -2,7 +2,13 @@ import psycopg2
 import streamlit as st
 
 def get_conn():
-    return psycopg2.connect(st.secrets["DATABASE_URL"])
+    return psycopg2.connect(
+        host=st.secrets["DB_HOST"],
+        dbname=st.secrets["DB_NAME"],
+        user=st.secrets["DB_USER"],
+        password=st.secrets["DB_PASSWORD"],
+        port=st.secrets["DB_PORT"]
+    )
 
 def init_db():
     conn = get_conn()
@@ -75,7 +81,6 @@ def init_db():
         )
     """)
 
-    # Dados iniciais
     usuarios = [
         ('Contabilidade', 'contabilidade', 'roc2024', 'contabilidade'),
         ('Adm Logistica King', 'adm.logistica.king', 'setor123', 'setor'),
