@@ -121,8 +121,8 @@ from modules.chamados import (
 # =============================================
 
 def pagina_dashboard():
-    st.title("📊 Dashboard")
-    st.info("Em construção — próximo passo.")
+    from modules.dashboard import tela_dashboard
+    tela_dashboard()
 
 def pagina_calendario():
     from modules.calendario import tela_calendario
