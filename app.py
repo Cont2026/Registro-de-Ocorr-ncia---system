@@ -160,9 +160,10 @@ def tela_login():
 def sidebar():
     logo_b64 = carregar_logo()
     with st.sidebar:
-        if logo_b64:
+       if logo_b64:
             st.markdown(f"""
-                <div style='padding:8px 0 16px;
+                <div style='margin:-1rem -1rem 0 -1rem; padding:20px 16px 16px;
+                background:#041747;
                 border-bottom:1px solid rgba(255,255,255,0.15); margin-bottom:16px;'>
                     <img src='data:image/png;base64,{logo_b64}'
                     style='width:80%; max-width:170px; display:block; margin:0 0 16px;'/>
