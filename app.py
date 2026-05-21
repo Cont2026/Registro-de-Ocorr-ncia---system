@@ -181,12 +181,12 @@ def tela_login():
 def sidebar():
     logo_b64 = carregar_logo()
     with st.sidebar:
-        if logo_b64:
+       if logo_b64:
             st.markdown(f"""
-                <div style='padding:16px 0 16px;
+                <div style='padding:8px 0 16px;
                 border-bottom:1px solid rgba(255,255,255,0.15); margin-bottom:16px;'>
                     <img src='data:image/png;base64,{logo_b64}'
-                    style='width:70%; max-width:150px; display:block; margin-bottom:14px;'/>
+                    style='width:80%; max-width:170px; display:block; margin:0 0 16px;'/>
                     <p style='font-family:Montserrat,sans-serif; font-weight:800;
                     font-size:2rem; letter-spacing:5px; color:#FAC318; margin:0;'>ROC</p>
                     <p style='font-family:Montserrat,sans-serif; font-weight:300;
