@@ -129,8 +129,8 @@ def pagina_calendario():
     st.info("Em construção — próximo passo.")
 
 def pagina_admin():
-    st.title("⚙️ Administração")
-    st.info("Em construção — próximo passo.")
+    from modules.admin import tela_admin
+    tela_admin()
 
 # =============================================
 # ROTEADOR
