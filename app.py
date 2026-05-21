@@ -65,10 +65,17 @@ st.markdown("""
             color: #041747 !important;
             border-color: #FAC318 !important;
         }
-        section[data-testid="stSidebar"] > div:first-child {
+       section[data-testid="stSidebar"] > div:first-child {
             padding-top: 0 !important;
         }
-        .login-card {
+        section[data-testid="stSidebar"] > div > div:first-child {
+            padding-top: 0 !important;
+            margin-top: 0 !important;
+        }
+        section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+            padding-top: 0 !important;
+            gap: 0 !important;
+        }        .login-card {
             background: white;
             border-radius: 16px;
             padding: 40px;
