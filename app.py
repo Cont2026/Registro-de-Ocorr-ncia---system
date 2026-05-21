@@ -65,6 +65,9 @@ st.markdown("""
             color: #041747 !important;
             border-color: #FAC318 !important;
         }
+        section[data-testid="stSidebar"] > div:first-child {
+            padding-top: 0 !important;
+        }
         .login-card {
             background: white;
             border-radius: 16px;
@@ -160,11 +163,11 @@ def tela_login():
 def sidebar():
     logo_b64 = carregar_logo()
     with st.sidebar:
-       if logo_b64:
+        if logo_b64:
             st.markdown(f"""
-                <div style='margin:-1rem -1rem 0 -1rem; padding:20px 16px 16px;
-                background:#041747;
-                border-bottom:1px solid rgba(255,255,255,0.15); margin-bottom:16px;'>
+                <div style='background:#041747; padding:24px 16px 20px;
+                margin:-1rem -1rem 20px -1rem;
+                border-bottom:1px solid rgba(255,255,255,0.15);'>
                     <img src='data:image/png;base64,{logo_b64}'
                     style='width:80%; max-width:170px; display:block; margin:0 0 16px;'/>
                     <p style='font-family:Montserrat,sans-serif; font-weight:800;
