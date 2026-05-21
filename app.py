@@ -1,6 +1,5 @@
 import streamlit as st
 import base64
-from datetime import datetime
 from database.connection import get_conn, init_db
 
 st.set_page_config(
@@ -10,14 +9,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# =============================================
-# IDENTIDADE VISUAL GRUPO LLE
-# =============================================
-
 st.markdown("""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');
-
         html, body, [class*="css"], .stApp {
             font-family: 'Montserrat', sans-serif !important;
         }
@@ -119,33 +113,36 @@ if "logado" not in st.session_state:
     st.session_state.setor = None
 
 # =============================================
+# LOGO
+# =============================================
+
+def carregar_logo():
+    try:
+        with open("assets/LOGO-GRUPO-LLE-BRANCO.png", "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except:
+        return None
+
+# =============================================
 # LOGIN
 # =============================================
 
 def tela_login():
+    logo_b64 = carregar_logo()
+    logo_html = f"<img src='data:image/png;base64,{logo_b64}' style='width:160px; margin-bottom:16px;'/>" if logo_b64 else ""
+
     col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
         st.markdown("<br><br>", unsafe_allow_html=True)
-
-        # Logo na tela de login
-        try:
-            with open("assets/LOGO-GRUPO-LLE-BRANCO.png", "rb") as f:
-                logo_b64 = base64.b64encode(f.read()).decode()
-            logo_html = f"<img src='data:image/png;base64,{logo_b64}' style='width:180px; margin-bottom:16px;'/>"
-        except:
-            logo_html = ""
-
         st.markdown(f"""
             <div class='login-card'>
-                <div style='text-align:center; margin-bottom: 32px;'>
+                <div style='text-align:center; margin-bottom:32px;'>
                     {logo_html}
-                    <div style='display:inline-block; background:#041747;
-                    border-radius:12px; padding:12px 28px; margin-bottom:12px;'>
-                        <p style='font-family:Montserrat,sans-serif; font-weight:800;
-                        font-size:2rem; letter-spacing:5px; color:#FAC318; margin:0;'>ROC</p>
-                    </div>
+                    <p style='font-family:Montserrat,sans-serif; font-weight:800;
+                    font-size:2.2rem; letter-spacing:6px; color:#FAC318;
+                    text-shadow: 0 2px 8px rgba(4,23,71,0.15); margin:0 0 8px;'>ROC</p>
                     <p style='font-family:Montserrat,sans-serif; font-weight:600;
-                    font-size:1rem; color:#041747; margin:0;'>Registro de Ocorrências Contábeis</p>
+                    font-size:0.95rem; color:#041747; margin:0;'>Registro de Ocorrências Contábeis</p>
                     <p style='font-family:Montserrat,sans-serif; font-weight:300;
                     font-size:0.8rem; color:gray; margin:4px 0 0;'>Grupo LLE</p>
                 </div>
@@ -168,7 +165,6 @@ def tela_login():
             row = cur.fetchone()
             cur.close()
             conn.close()
-
             if row:
                 st.session_state.logado = True
                 st.session_state.usuario = row[0]
@@ -183,34 +179,32 @@ def tela_login():
 # =============================================
 
 def sidebar():
+    logo_b64 = carregar_logo()
     with st.sidebar:
-
-        # Logo na sidebar
-        try:
-            with open("assets/LOGO-GRUPO-LLE-BRANCO.png", "rb") as f:
-                logo_b64 = base64.b64encode(f.read()).decode()
+        if logo_b64:
             st.markdown(f"""
-                <div style='padding: 16px 0 8px; text-align:center;'>
+                <div style='padding:16px 0 16px;
+                border-bottom:1px solid rgba(255,255,255,0.15); margin-bottom:16px;'>
                     <img src='data:image/png;base64,{logo_b64}'
-                    style='width:75%; max-width:160px; display:block; margin:0 auto 12px;'/>
-                </div>
-            """, unsafe_allow_html=True)
-        except:
-            pass
-
-        st.markdown("""
-            <div style='text-align:center; padding-bottom:16px;
-            border-bottom: 1px solid rgba(255,255,255,0.15); margin-bottom:16px;'>
-                <div style='background: rgba(250,195,24,0.15); border-radius:10px;
-                padding:10px 20px; display:inline-block;'>
+                    style='width:70%; max-width:150px; display:block; margin-bottom:14px;'/>
                     <p style='font-family:Montserrat,sans-serif; font-weight:800;
                     font-size:2rem; letter-spacing:5px; color:#FAC318; margin:0;'>ROC</p>
+                    <p style='font-family:Montserrat,sans-serif; font-weight:300;
+                    font-size:0.72rem; color:rgba(255,255,255,0.55); margin:4px 0 0;'>
+                    Registro de Ocorrências Contábeis</p>
                 </div>
-                <p style='font-family:Montserrat,sans-serif; font-weight:300;
-                font-size:0.72rem; color:rgba(255,255,255,0.55); margin:6px 0 0;'>
-                Registro de Ocorrências Contábeis</p>
-            </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+                <div style='padding:16px 0 16px;
+                border-bottom:1px solid rgba(255,255,255,0.15); margin-bottom:16px;'>
+                    <p style='font-family:Montserrat,sans-serif; font-weight:800;
+                    font-size:2rem; letter-spacing:5px; color:#FAC318; margin:0;'>ROC</p>
+                    <p style='font-family:Montserrat,sans-serif; font-weight:300;
+                    font-size:0.72rem; color:rgba(255,255,255,0.55); margin:4px 0 0;'>
+                    Registro de Ocorrências Contábeis</p>
+                </div>
+            """, unsafe_allow_html=True)
 
         st.markdown(f"""
             <div style='margin-bottom:16px;'>
@@ -250,10 +244,9 @@ def sidebar():
 
         st.markdown("""
             <div style='position:fixed; bottom:20px; left:0; width:260px;
-            text-align:center; padding: 0 16px;'>
+            text-align:center; padding:0 16px;'>
                 <p style='font-size:0.65rem; color:rgba(255,255,255,0.3);
-                font-family:Montserrat,sans-serif; margin:0;'>
-                ROC © 2026 · Grupo LLE</p>
+                font-family:Montserrat,sans-serif; margin:0;'>ROC © 2026 · Grupo LLE</p>
             </div>
         """, unsafe_allow_html=True)
 
