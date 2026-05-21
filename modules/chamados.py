@@ -15,7 +15,7 @@ def gerar_protocolo():
     cur.close()
     conn.close()
     agora = datetime.now(BRASILIA)
-    return f"RO-{agora.strftime('%Y%m')}-{str(total + 1).zfill(4)}"
+    return f"ROC-{agora.strftime('%Y%m')}-{str(total + 1).zfill(4)}"
 
 def verificar_bloqueio(data_nota):
     agora = datetime.now(BRASILIA)
@@ -45,8 +45,6 @@ def verificar_bloqueio(data_nota):
 
 def tela_novo_chamado():
     st.title("➕ Novo Chamado")
-
-    # Setor identificado automaticamente pelo login
     setor_logado = st.session_state.setor
     st.markdown(f"**Setor:** {setor_logado}")
     st.markdown("Preencha todos os campos obrigatórios para registrar a ocorrência.")
@@ -168,7 +166,7 @@ def tela_meus_chamados():
     cur = conn.cursor()
     cur.execute("""
         SELECT protocolo, tipo_inconsistencia, motivo, empresa,
-               status, prioridade, aberto_em
+               status, prioridade, nome_parceiro, numero_nota, aberto_em
         FROM chamados WHERE setor = %s
         ORDER BY aberto_em DESC
     """, (st.session_state.setor,))
@@ -183,13 +181,14 @@ def tela_meus_chamados():
     status_cor = {"Aberto": "🔴", "Em andamento": "🟡", "Resolvido": "🟢", "Cancelado": "⚫"}
 
     for row in rows:
-        protocolo, tipo, motivo, empresa, status, prioridade, aberto_em = row
+        protocolo, tipo, motivo, empresa, status, prioridade, parceiro, nf, aberto_em = row
         icone = status_cor.get(status, "⚪")
-        with st.expander(f"{icone} {protocolo} — {tipo} | {status}"):
-            col1, col2, col3 = st.columns(3)
+        with st.expander(f"{icone} {protocolo} — {parceiro} | NF: {nf} | {status}"):
+            col1, col2, col3, col4 = st.columns(4)
             col1.markdown(f"**Empresa:** {empresa}")
-            col2.markdown(f"**Motivo:** {motivo}")
-            col3.markdown(f"**Prioridade:** {prioridade}")
+            col2.markdown(f"**Tipo:** {tipo}")
+            col3.markdown(f"**Motivo:** {motivo}")
+            col4.markdown(f"**Prioridade:** {prioridade}")
             st.markdown(f"**Aberto em:** {aberto_em}")
 
 def tela_todos_chamados():
@@ -200,7 +199,7 @@ def tela_todos_chamados():
     cur = conn.cursor()
     cur.execute("""
         SELECT protocolo, setor, tipo_inconsistencia, motivo,
-               empresa, status, prioridade, aberto_em
+               empresa, status, prioridade, nome_parceiro, numero_nota, aberto_em
         FROM chamados ORDER BY aberto_em DESC
     """)
     rows = cur.fetchall()
@@ -222,7 +221,7 @@ def tela_todos_chamados():
     status_cor = {"Aberto": "🔴", "Em andamento": "🟡", "Resolvido": "🟢", "Cancelado": "⚫"}
 
     for row in rows:
-        protocolo, setor, tipo, motivo, empresa, status, prioridade, aberto_em = row
+        protocolo, setor, tipo, motivo, empresa, status, prioridade, parceiro, nf, aberto_em = row
         if filtro_status != "Todos" and status != filtro_status:
             continue
         if filtro_empresa != "Todas" and empresa != filtro_empresa:
@@ -231,11 +230,12 @@ def tela_todos_chamados():
             continue
 
         icone = status_cor.get(status, "⚪")
-        with st.expander(f"{icone} {protocolo} — {setor} | {tipo} | {status}"):
-            col1, col2, col3 = st.columns(3)
+        with st.expander(f"{icone} {protocolo} — {parceiro} | NF: {nf} | {setor} | {status}"):
+            col1, col2, col3, col4 = st.columns(4)
             col1.markdown(f"**Empresa:** {empresa}")
-            col2.markdown(f"**Motivo:** {motivo}")
-            col3.markdown(f"**Prioridade:** {prioridade}")
+            col2.markdown(f"**Tipo:** {tipo}")
+            col3.markdown(f"**Motivo:** {motivo}")
+            col4.markdown(f"**Prioridade:** {prioridade}")
             st.markdown(f"**Aberto em:** {aberto_em}")
             st.markdown("---")
             novo_status = st.selectbox(
