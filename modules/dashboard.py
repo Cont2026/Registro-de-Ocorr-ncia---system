@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import io
 from database.connection import get_conn
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -123,9 +124,6 @@ def tela_dashboard():
 
     st.markdown("---")
 
-    # =============================================
-    # EVOLUÇÃO MENSAL
-    # =============================================
     st.markdown("##### Evolução Mensal de Chamados")
     df_f["mes"] = df_f["aberto_em"].dt.to_period("M").astype(str)
     df_mes = df_f.groupby("mes").size().reset_index(name="qtd").sort_values("mes")
@@ -136,8 +134,8 @@ def tela_dashboard():
 
     st.markdown("---")
 
-  # =============================================
-    # EXPORTAÇÃO EXCEL
+    # =============================================
+    # EXPORTAÇÃO EXCEL — 2 ABAS
     # =============================================
     st.markdown("##### 📥 Exportar dados")
 
@@ -163,44 +161,46 @@ def tela_dashboard():
         "Resolvido Em", "Resolução"
     ])
 
-    # Aba Dashboard — resumo
-    df_tipo = df_f.groupby("tipo").size().reset_index(name="Quantidade").sort_values("Quantidade", ascending=False).rename(columns={"tipo": "Tipo de Inconsistência"})
+    df_kpi = pd.DataFrame({
+        "Indicador": ["Total de Chamados", "Abertos", "Em Andamento", "Resolvidos", "Tempo Médio (h)"],
+        "Valor": [total, abertos, em_andamento, resolvidos,
+                  f"{tempo_medio:.1f}" if not pd.isna(tempo_medio) else "—"]
+    })
+
+    df_tipo_exp = df_f.groupby("tipo").size().reset_index(name="Quantidade").sort_values("Quantidade", ascending=False).rename(columns={"tipo": "Tipo de Inconsistência"})
     df_setor_exp = df_f.groupby("setor").size().reset_index(name="Quantidade").sort_values("Quantidade", ascending=False).rename(columns={"setor": "Setor"})
     df_empresa_exp = df_f.groupby("empresa").size().reset_index(name="Quantidade").rename(columns={"empresa": "Empresa"})
     df_status_exp = df_f.groupby("status").size().reset_index(name="Quantidade").rename(columns={"status": "Status"})
 
-    kpi_data = {
-        "Indicador": ["Total de Chamados", "Abertos", "Em Andamento", "Resolvidos", "Tempo Médio de Resolução (h)"],
-        "Valor": [total, abertos, em_andamento, resolvidos, f"{tempo_medio:.1f}" if not pd.isna(tempo_medio) else "—"]
-    }
-    df_kpi = pd.DataFrame(kpi_data)
-
-    import io
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        # Aba 1 — Chamados
         df_export.to_excel(writer, index=False, sheet_name="Chamados")
 
-        # Aba Dashboard
+        # Aba 2 — Dashboard
+        ws = writer.book.create_sheet("Dashboard")
+        writer.sheets["Dashboard"] = ws
+
         linha = 0
         df_kpi.to_excel(writer, index=False, sheet_name="Dashboard", startrow=linha)
         linha += len(df_kpi) + 3
 
-        writer.sheets["Dashboard"].cell(row=linha+1, column=1, value="Por Tipo de Inconsistência")
+        ws.cell(row=linha + 1, column=1, value="Por Tipo de Inconsistência")
         linha += 1
-        df_tipo.to_excel(writer, index=False, sheet_name="Dashboard", startrow=linha)
-        linha += len(df_tipo) + 3
+        df_tipo_exp.to_excel(writer, index=False, sheet_name="Dashboard", startrow=linha)
+        linha += len(df_tipo_exp) + 3
 
-        writer.sheets["Dashboard"].cell(row=linha+1, column=1, value="Por Setor")
+        ws.cell(row=linha + 1, column=1, value="Por Setor")
         linha += 1
         df_setor_exp.to_excel(writer, index=False, sheet_name="Dashboard", startrow=linha)
         linha += len(df_setor_exp) + 3
 
-        writer.sheets["Dashboard"].cell(row=linha+1, column=1, value="Por Empresa")
+        ws.cell(row=linha + 1, column=1, value="Por Empresa")
         linha += 1
         df_empresa_exp.to_excel(writer, index=False, sheet_name="Dashboard", startrow=linha)
         linha += len(df_empresa_exp) + 3
 
-        writer.sheets["Dashboard"].cell(row=linha+1, column=1, value="Por Status")
+        ws.cell(row=linha + 1, column=1, value="Por Status")
         linha += 1
         df_status_exp.to_excel(writer, index=False, sheet_name="Dashboard", startrow=linha)
 
