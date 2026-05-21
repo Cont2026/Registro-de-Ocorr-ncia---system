@@ -1,21 +1,18 @@
 import streamlit as st
-import sqlite3
 import os
 import calendar
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
+from database.connection import get_conn
 
-DB_PATH = "database/ro.db"
 BRASILIA = ZoneInfo("America/Sao_Paulo")
-
-def get_conn():
-    return sqlite3.connect(DB_PATH)
 
 def gerar_protocolo():
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT COUNT(*) FROM chamados")
     total = cur.fetchone()[0]
+    cur.close()
     conn.close()
     agora = datetime.now(BRASILIA)
     return f"RO-{agora.strftime('%Y%m')}-{str(total + 1).zfill(4)}"
@@ -32,15 +29,12 @@ def verificar_bloqueio(data_nota):
     mes_atual = hoje.month
     ano_atual = hoje.year
 
-    # Chamados do mês atual sempre permitidos
     if ano_nota == ano_atual and mes_nota == mes_atual:
         return False, ""
 
-    # Chamados de competências mais antigas que o mês anterior: sempre bloqueados
     if (ano_nota < ano_atual) or (ano_nota == ano_atual and mes_nota < mes_atual - 1):
         return True, "⛔ O prazo para solicitações da competência selecionada foi encerrado conforme regra de fechamento contábil."
 
-    # Chamados do mês anterior: permitidos até o último dia do mês atual às 17h48
     ultimo_dia = calendar.monthrange(ano_atual, mes_atual)[1]
     prazo_final = datetime(ano_atual, mes_atual, ultimo_dia, 17, 48, 0, tzinfo=BRASILIA)
 
@@ -60,6 +54,7 @@ def tela_novo_chamado():
     tipos = [r[0] for r in cur.fetchall()]
     cur.execute("SELECT nome FROM motivos WHERE ativo=1 ORDER BY nome")
     motivos_lista = [r[0] for r in cur.fetchall()]
+    cur.close()
     conn.close()
 
     tipo_nota = st.selectbox("Tipo da Nota *", ["", "Compra", "Venda"], key="tipo_nota_select")
@@ -115,7 +110,6 @@ def tela_novo_chamado():
             st.error(f"⚠️ Preencha os campos obrigatórios: {', '.join(erros)}")
             return
 
-        # Verificar bloqueio de competência
         data_referencia = data_entrada if tipo_nota == "Compra" else data_negociacao
         bloqueado, msg_bloqueio = verificar_bloqueio(data_referencia)
         if bloqueado:
@@ -144,18 +138,19 @@ def tela_novo_chamado():
                 prioridade, nf_retorna, nome_parceiro, numero_nota,
                 tipo_nota, data_entrada, data_saida, data_negociacao,
                 valor, observacao, arquivo_nome, status, aberto_em
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (
             protocolo, st.session_state.setor,
             empresa, tipo, motivo, prioridade, nf_retorna,
             nome_parceiro.strip(), numero_nota.strip(), tipo_nota,
-            data_entrada.strftime("%Y-%m-%d") if data_entrada else None,
-            data_saida.strftime("%Y-%m-%d") if data_saida else None,
-            data_negociacao.strftime("%Y-%m-%d") if data_negociacao else None,
+            data_entrada if data_entrada else None,
+            data_saida if data_saida else None,
+            data_negociacao if data_negociacao else None,
             valor_float, observacao.strip(), arquivo_nome, "Aberto",
             datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S")
         ))
         conn.commit()
+        cur.close()
         conn.close()
 
         st.success(f"✅ Chamado registrado com sucesso! Protocolo: **{protocolo}**")
@@ -170,10 +165,11 @@ def tela_meus_chamados():
     cur.execute("""
         SELECT protocolo, tipo_inconsistencia, motivo, empresa,
                status, prioridade, aberto_em
-        FROM chamados WHERE setor = ?
+        FROM chamados WHERE setor = %s
         ORDER BY aberto_em DESC
     """, (st.session_state.setor,))
     rows = cur.fetchall()
+    cur.close()
     conn.close()
 
     if not rows:
@@ -204,6 +200,7 @@ def tela_todos_chamados():
         FROM chamados ORDER BY aberto_em DESC
     """)
     rows = cur.fetchall()
+    cur.close()
     conn.close()
 
     if not rows:
@@ -249,12 +246,13 @@ def tela_todos_chamados():
                 conn = get_conn()
                 cur = conn.cursor()
                 cur.execute("""
-                    UPDATE chamados SET status=?, resolucao=?,
-                    atendido_em=COALESCE(atendido_em, ?),
-                    resolvido_em=CASE WHEN ?='Resolvido' THEN ? ELSE resolvido_em END
-                    WHERE protocolo=?
+                    UPDATE chamados SET status=%s, resolucao=%s,
+                    atendido_em=COALESCE(atendido_em, %s),
+                    resolvido_em=CASE WHEN %s='Resolvido' THEN %s ELSE resolvido_em END
+                    WHERE protocolo=%s
                 """, (novo_status, resolucao, agora, novo_status, agora, protocolo))
                 conn.commit()
+                cur.close()
                 conn.close()
                 st.success("✅ Chamado atualizado!")
                 st.rerun()
