@@ -136,7 +136,7 @@ def tela_dashboard():
 
     st.markdown("---")
 
-    # =============================================
+  # =============================================
     # EXPORTAÇÃO EXCEL
     # =============================================
     st.markdown("##### 📥 Exportar dados")
@@ -163,14 +163,51 @@ def tela_dashboard():
         "Resolvido Em", "Resolução"
     ])
 
+    # Aba Dashboard — resumo
+    df_tipo = df_f.groupby("tipo").size().reset_index(name="Quantidade").sort_values("Quantidade", ascending=False).rename(columns={"tipo": "Tipo de Inconsistência"})
+    df_setor_exp = df_f.groupby("setor").size().reset_index(name="Quantidade").sort_values("Quantidade", ascending=False).rename(columns={"setor": "Setor"})
+    df_empresa_exp = df_f.groupby("empresa").size().reset_index(name="Quantidade").rename(columns={"empresa": "Empresa"})
+    df_status_exp = df_f.groupby("status").size().reset_index(name="Quantidade").rename(columns={"status": "Status"})
+
+    kpi_data = {
+        "Indicador": ["Total de Chamados", "Abertos", "Em Andamento", "Resolvidos", "Tempo Médio de Resolução (h)"],
+        "Valor": [total, abertos, em_andamento, resolvidos, f"{tempo_medio:.1f}" if not pd.isna(tempo_medio) else "—"]
+    }
+    df_kpi = pd.DataFrame(kpi_data)
+
     import io
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         df_export.to_excel(writer, index=False, sheet_name="Chamados")
+
+        # Aba Dashboard
+        linha = 0
+        df_kpi.to_excel(writer, index=False, sheet_name="Dashboard", startrow=linha)
+        linha += len(df_kpi) + 3
+
+        writer.sheets["Dashboard"].cell(row=linha+1, column=1, value="Por Tipo de Inconsistência")
+        linha += 1
+        df_tipo.to_excel(writer, index=False, sheet_name="Dashboard", startrow=linha)
+        linha += len(df_tipo) + 3
+
+        writer.sheets["Dashboard"].cell(row=linha+1, column=1, value="Por Setor")
+        linha += 1
+        df_setor_exp.to_excel(writer, index=False, sheet_name="Dashboard", startrow=linha)
+        linha += len(df_setor_exp) + 3
+
+        writer.sheets["Dashboard"].cell(row=linha+1, column=1, value="Por Empresa")
+        linha += 1
+        df_empresa_exp.to_excel(writer, index=False, sheet_name="Dashboard", startrow=linha)
+        linha += len(df_empresa_exp) + 3
+
+        writer.sheets["Dashboard"].cell(row=linha+1, column=1, value="Por Status")
+        linha += 1
+        df_status_exp.to_excel(writer, index=False, sheet_name="Dashboard", startrow=linha)
+
     buffer.seek(0)
 
     st.download_button(
-        label="📥 Baixar Excel",
+        label="📥 Baixar Excel completo",
         data=buffer,
         file_name=f"RO_chamados_{datetime.now(BRASILIA).strftime('%Y%m%d_%H%M')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
