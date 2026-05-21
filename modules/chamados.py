@@ -45,6 +45,10 @@ def verificar_bloqueio(data_nota):
 
 def tela_novo_chamado():
     st.title("➕ Novo Chamado")
+
+    # Setor identificado automaticamente pelo login
+    setor_logado = st.session_state.setor
+    st.markdown(f"**Setor:** {setor_logado}")
     st.markdown("Preencha todos os campos obrigatórios para registrar a ocorrência.")
     st.markdown("---")
 
@@ -140,7 +144,7 @@ def tela_novo_chamado():
                 valor, observacao, arquivo_nome, status, aberto_em
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (
-            protocolo, st.session_state.setor,
+            protocolo, setor_logado,
             empresa, tipo, motivo, prioridade, nf_retorna,
             nome_parceiro.strip(), numero_nota.strip(), tipo_nota,
             data_entrada if data_entrada else None,
