@@ -20,27 +20,20 @@ def gerar_protocolo():
 def verificar_bloqueio(data_nota):
     agora = datetime.now(BRASILIA)
     hoje = agora.date()
-
     if data_nota is None:
         return False, ""
-
     mes_nota = data_nota.month
     ano_nota = data_nota.year
     mes_atual = hoje.month
     ano_atual = hoje.year
-
     if ano_nota == ano_atual and mes_nota == mes_atual:
         return False, ""
-
     if (ano_nota < ano_atual) or (ano_nota == ano_atual and mes_nota < mes_atual - 1):
         return True, "⛔ O prazo para solicitações da competência selecionada foi encerrado conforme regra de fechamento contábil."
-
     ultimo_dia = calendar.monthrange(ano_atual, mes_atual)[1]
     prazo_final = datetime(ano_atual, mes_atual, ultimo_dia, 17, 48, 0, tzinfo=BRASILIA)
-
     if agora > prazo_final:
         return True, "⛔ O prazo para solicitações da competência selecionada foi encerrado conforme regra de fechamento contábil."
-
     return False, ""
 
 def tela_novo_chamado():
@@ -54,8 +47,6 @@ def tela_novo_chamado():
     cur = conn.cursor()
     cur.execute("SELECT nome FROM tipos_inconsistencia WHERE ativo=1 ORDER BY nome")
     tipos = [r[0] for r in cur.fetchall()]
-    cur.execute("SELECT nome FROM motivos WHERE ativo=1 ORDER BY nome")
-    motivos_lista = [r[0] for r in cur.fetchall()]
     cur.close()
     conn.close()
 
@@ -66,7 +57,6 @@ def tela_novo_chamado():
         return
 
     data_entrada = None
-    data_saida = None
     data_negociacao = None
 
     if tipo_nota == "Compra":
@@ -80,8 +70,7 @@ def tela_novo_chamado():
         col1, col2 = st.columns(2)
         with col1:
             empresa = st.selectbox("🏢 Empresa *", ["", "1", "2", "6", "13", "14"])
-            tipo = st.selectbox("📌 Tipo de Inconsistência *", [""] + tipos)
-            motivo = st.selectbox("🔍 Motivo *", [""] + motivos_lista)
+            tipo = st.selectbox("📋 Abertura de Período / Descontabilização *", [""] + tipos)
             prioridade = st.selectbox("🚦 Prioridade *", ["Normal", "Urgente"])
             nf_retorna = st.selectbox("🔄 NF retornará ao sistema? *", ["", "Retornará", "Não retornará"])
         with col2:
@@ -97,8 +86,7 @@ def tela_novo_chamado():
     if enviar:
         erros = []
         if not empresa: erros.append("Empresa")
-        if not tipo: erros.append("Tipo de Inconsistência")
-        if not motivo: erros.append("Motivo")
+        if not tipo: erros.append("Abertura de Período / Descontabilização")
         if not nf_retorna: erros.append("NF retornará ao sistema")
         if not nome_parceiro.strip(): erros.append("Nome do Parceiro")
         if not numero_nota.strip(): erros.append("Número da Nota")
@@ -136,17 +124,17 @@ def tela_novo_chamado():
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO chamados (
-                protocolo, setor, empresa, tipo_inconsistencia, motivo,
+                protocolo, setor, empresa, tipo_inconsistencia,
                 prioridade, nf_retorna, nome_parceiro, numero_nota,
                 tipo_nota, data_entrada, data_saida, data_negociacao,
                 valor, observacao, arquivo_nome, status, aberto_em
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (
             protocolo, setor_logado,
-            empresa, tipo, motivo, prioridade, nf_retorna,
+            empresa, tipo, prioridade, nf_retorna,
             nome_parceiro.strip(), numero_nota.strip(), tipo_nota,
             data_entrada if data_entrada else None,
-            data_saida if data_saida else None,
+            None,
             data_negociacao if data_negociacao else None,
             valor_float, observacao.strip(), arquivo_nome, "Aberto",
             datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S")
@@ -165,7 +153,7 @@ def tela_meus_chamados():
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-        SELECT protocolo, tipo_inconsistencia, motivo, empresa,
+        SELECT protocolo, tipo_inconsistencia, empresa,
                status, prioridade, nome_parceiro, numero_nota, aberto_em
         FROM chamados WHERE setor = %s
         ORDER BY aberto_em DESC
@@ -181,14 +169,13 @@ def tela_meus_chamados():
     status_cor = {"Aberto": "🔴", "Em andamento": "🟡", "Resolvido": "🟢", "Cancelado": "⚫"}
 
     for row in rows:
-        protocolo, tipo, motivo, empresa, status, prioridade, parceiro, nf, aberto_em = row
+        protocolo, tipo, empresa, status, prioridade, parceiro, nf, aberto_em = row
         icone = status_cor.get(status, "⚪")
         with st.expander(f"{icone} {protocolo} — {parceiro} | NF: {nf} | {status}"):
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3 = st.columns(3)
             col1.markdown(f"**Empresa:** {empresa}")
             col2.markdown(f"**Tipo:** {tipo}")
-            col3.markdown(f"**Motivo:** {motivo}")
-            col4.markdown(f"**Prioridade:** {prioridade}")
+            col3.markdown(f"**Prioridade:** {prioridade}")
             st.markdown(f"**Aberto em:** {aberto_em}")
 
 def tela_todos_chamados():
@@ -198,7 +185,7 @@ def tela_todos_chamados():
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-        SELECT protocolo, setor, tipo_inconsistencia, motivo,
+        SELECT protocolo, setor, tipo_inconsistencia,
                empresa, status, prioridade, nome_parceiro, numero_nota, aberto_em
         FROM chamados ORDER BY aberto_em DESC
     """)
@@ -221,7 +208,7 @@ def tela_todos_chamados():
     status_cor = {"Aberto": "🔴", "Em andamento": "🟡", "Resolvido": "🟢", "Cancelado": "⚫"}
 
     for row in rows:
-        protocolo, setor, tipo, motivo, empresa, status, prioridade, parceiro, nf, aberto_em = row
+        protocolo, setor, tipo, empresa, status, prioridade, parceiro, nf, aberto_em = row
         if filtro_status != "Todos" and status != filtro_status:
             continue
         if filtro_empresa != "Todas" and empresa != filtro_empresa:
@@ -231,11 +218,10 @@ def tela_todos_chamados():
 
         icone = status_cor.get(status, "⚪")
         with st.expander(f"{icone} {protocolo} — {parceiro} | NF: {nf} | {setor} | {status}"):
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3 = st.columns(3)
             col1.markdown(f"**Empresa:** {empresa}")
             col2.markdown(f"**Tipo:** {tipo}")
-            col3.markdown(f"**Motivo:** {motivo}")
-            col4.markdown(f"**Prioridade:** {prioridade}")
+            col3.markdown(f"**Prioridade:** {prioridade}")
             st.markdown(f"**Aberto em:** {aberto_em}")
             st.markdown("---")
             novo_status = st.selectbox(
