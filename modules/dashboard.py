@@ -5,8 +5,79 @@ import io
 from database.connection import get_conn
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from openpyxl.drawing.image import Image as XLImage
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
+
+HEADER_FILL = PatternFill("solid", fgColor="041747")
+HEADER_FONT = Font(name="Calibri", bold=True, color="FFFFFF", size=12)
+HEADER_ALIGN = Alignment(horizontal="center", vertical="center", wrap_text=True)
+DATA_FONT = Font(name="Calibri", size=11, color="000000")
+DATA_ALIGN = Alignment(horizontal="left", vertical="center")
+ALT_FILL = PatternFill("solid", fgColor="F2F4F8")
+BORDER = Border(
+    left=Side(style="thin", color="DDDDDD"),
+    right=Side(style="thin", color="DDDDDD"),
+    top=Side(style="thin", color="DDDDDD"),
+    bottom=Side(style="thin", color="DDDDDD")
+)
+DASH_FILLS = {
+    "tipo": PatternFill("solid", fgColor="041747"),
+    "setor": PatternFill("solid", fgColor="0F8C3B"),
+    "empresa": PatternFill("solid", fgColor="0071FE"),
+    "status": PatternFill("solid", fgColor="FAC318"),
+    "kpi": PatternFill("solid", fgColor="041747"),
+}
+DASH_FONT_DARK = Font(name="Calibri", bold=True, color="FFFFFF", size=11)
+DASH_FONT_LIGHT = Font(name="Calibri", bold=True, color="041747", size=11)
+
+def estilo_cabecalho(ws, row, num_cols):
+    for col in range(1, num_cols + 1):
+        cell = ws.cell(row=row, column=col)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = HEADER_ALIGN
+        cell.border = BORDER
+
+def estilo_dados(ws, row_start, row_end, num_cols):
+    for row in range(row_start, row_end + 1):
+        fill = ALT_FILL if row % 2 == 0 else PatternFill("solid", fgColor="FFFFFF")
+        for col in range(1, num_cols + 1):
+            cell = ws.cell(row=row, column=col)
+            cell.font = DATA_FONT
+            cell.alignment = DATA_ALIGN
+            cell.fill = fill
+            cell.border = BORDER
+
+def ajustar_colunas(ws):
+    for col in ws.columns:
+        max_len = max((len(str(c.value)) if c.value else 0) for c in col)
+        ws.column_dimensions[get_column_letter(col[0].column)].width = min(max_len + 4, 45)
+
+def inserir_cabecalho_relatorio(ws, titulo):
+    try:
+        img = XLImage("assets/LOGO-GRUPO-LLE-COR-OFICIAL-PRINCIPAL.png")
+        img.width = 160
+        img.height = 55
+        ws.add_image(img, "A1")
+    except:
+        pass
+    ws.row_dimensions[1].height = 35
+    ws.row_dimensions[2].height = 20
+    ws.row_dimensions[3].height = 18
+    ws.row_dimensions[4].height = 16
+
+    ws["E1"] = titulo
+    ws["E1"].font = Font(name="Calibri", bold=True, size=14, color="041747")
+    ws["E1"].alignment = Alignment(vertical="center")
+
+    ws["E2"] = "Grupo LLE"
+    ws["E2"].font = Font(name="Calibri", size=11, color="0071FE", bold=True)
+
+    ws["E3"] = f"Gerado em: {datetime.now(BRASILIA).strftime('%d/%m/%Y às %H:%M')}"
+    ws["E3"].font = Font(name="Calibri", size=10, color="999999")
 
 def tela_dashboard():
     st.title("📊 Dashboard")
@@ -17,8 +88,7 @@ def tela_dashboard():
     cur.execute("""
         SELECT protocolo, setor, empresa, tipo_inconsistencia, motivo,
                prioridade, status, aberto_em, atendido_em, resolvido_em
-        FROM chamados
-        ORDER BY aberto_em DESC
+        FROM chamados ORDER BY aberto_em DESC
     """)
     rows = cur.fetchall()
     cur.close()
@@ -37,9 +107,6 @@ def tela_dashboard():
     df["resolvido_em"] = pd.to_datetime(df["resolvido_em"])
     df["tempo_resolucao"] = (df["resolvido_em"] - df["aberto_em"]).dt.total_seconds() / 3600
 
-    # =============================================
-    # FILTROS
-    # =============================================
     st.markdown("#### 🔎 Filtros")
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -56,10 +123,6 @@ def tela_dashboard():
     ]
 
     st.markdown("---")
-
-    # =============================================
-    # KPIs
-    # =============================================
     st.markdown("#### 📈 Indicadores")
     k1, k2, k3, k4, k5 = st.columns(5)
 
@@ -77,11 +140,7 @@ def tela_dashboard():
 
     st.markdown("---")
 
-    # =============================================
-    # GRÁFICOS
-    # =============================================
     col_a, col_b = st.columns(2)
-
     with col_a:
         st.markdown("##### Chamados por Tipo")
         df_tipo = df_f.groupby("tipo").size().reset_index(name="qtd").sort_values("qtd", ascending=False)
@@ -103,7 +162,6 @@ def tela_dashboard():
         st.plotly_chart(fig2, use_container_width=True)
 
     col_c, col_d = st.columns(2)
-
     with col_c:
         st.markdown("##### Chamados por Empresa")
         df_emp = df_f.groupby("empresa").size().reset_index(name="qtd")
@@ -123,7 +181,6 @@ def tela_dashboard():
         st.plotly_chart(fig4, use_container_width=True)
 
     st.markdown("---")
-
     st.markdown("##### Evolução Mensal de Chamados")
     df_f["mes"] = df_f["aberto_em"].dt.to_period("M").astype(str)
     df_mes = df_f.groupby("mes").size().reset_index(name="qtd").sort_values("mes")
@@ -133,10 +190,6 @@ def tela_dashboard():
     st.plotly_chart(fig5, use_container_width=True)
 
     st.markdown("---")
-
-    # =============================================
-    # EXPORTAÇÃO EXCEL — 2 ABAS
-    # =============================================
     st.markdown("##### 📥 Exportar dados")
 
     conn = get_conn()
@@ -166,7 +219,6 @@ def tela_dashboard():
         "Valor": [total, abertos, em_andamento, resolvidos,
                   f"{tempo_medio:.1f}" if not pd.isna(tempo_medio) else "—"]
     })
-
     df_tipo_exp = df_f.groupby("tipo").size().reset_index(name="Quantidade").sort_values("Quantidade", ascending=False).rename(columns={"tipo": "Tipo de Inconsistência"})
     df_setor_exp = df_f.groupby("setor").size().reset_index(name="Quantidade").sort_values("Quantidade", ascending=False).rename(columns={"setor": "Setor"})
     df_empresa_exp = df_f.groupby("empresa").size().reset_index(name="Quantidade").rename(columns={"empresa": "Empresa"})
@@ -174,42 +226,68 @@ def tela_dashboard():
 
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        # Aba 1 — Chamados
-        df_export.to_excel(writer, index=False, sheet_name="Chamados")
 
-        # Aba 2 — Dashboard
-        ws = writer.book.create_sheet("Dashboard")
-        writer.sheets["Dashboard"] = ws
+        # ── ABA CHAMADOS ──
+        df_export.to_excel(writer, index=False, sheet_name="Chamados", startrow=6)
+        ws1 = writer.sheets["Chamados"]
+        inserir_cabecalho_relatorio(ws1, "ROC — Registro de Ocorrências Contábeis")
+        estilo_cabecalho(ws1, 7, len(df_export.columns))
+        estilo_dados(ws1, 8, 7 + len(df_export), len(df_export.columns))
+        ws1.row_dimensions[7].height = 30
+        ajustar_colunas(ws1)
+        ws1.freeze_panes = "A8"
 
-        linha = 0
-        df_kpi.to_excel(writer, index=False, sheet_name="Dashboard", startrow=linha)
-        linha += len(df_kpi) + 3
+        # ── ABA DASHBOARD ──
+        ws2 = writer.book.create_sheet("Dashboard")
+        writer.sheets["Dashboard"] = ws2
+        inserir_cabecalho_relatorio(ws2, "ROC — Dashboard Operacional")
 
-        ws.cell(row=linha + 1, column=1, value="Por Tipo de Inconsistência")
-        linha += 1
-        df_tipo_exp.to_excel(writer, index=False, sheet_name="Dashboard", startrow=linha)
-        linha += len(df_tipo_exp) + 3
+        secoes = [
+            ("📊 KPIs", df_kpi, "kpi", False),
+            ("📌 Por Tipo de Inconsistência", df_tipo_exp, "tipo", True),
+            ("🏢 Por Setor", df_setor_exp, "setor", True),
+            ("🏭 Por Empresa", df_empresa_exp, "empresa", True),
+            ("🔘 Por Status", df_status_exp, "status", True),
+        ]
 
-        ws.cell(row=linha + 1, column=1, value="Por Setor")
-        linha += 1
-        df_setor_exp.to_excel(writer, index=False, sheet_name="Dashboard", startrow=linha)
-        linha += len(df_setor_exp) + 3
+        linha = 6
+        for titulo, df_sec, cor_key, usa_alt in secoes:
+            titulo_cell = ws2.cell(row=linha, column=1, value=titulo)
+            titulo_cell.font = Font(name="Calibri", bold=True, size=12, color="041747")
+            titulo_cell.fill = PatternFill("solid", fgColor="F0F4FF")
+            ws2.row_dimensions[linha].height = 22
+            linha += 1
 
-        ws.cell(row=linha + 1, column=1, value="Por Empresa")
-        linha += 1
-        df_empresa_exp.to_excel(writer, index=False, sheet_name="Dashboard", startrow=linha)
-        linha += len(df_empresa_exp) + 3
+            df_sec.to_excel(writer, index=False, sheet_name="Dashboard", startrow=linha - 1)
 
-        ws.cell(row=linha + 1, column=1, value="Por Status")
-        linha += 1
-        df_status_exp.to_excel(writer, index=False, sheet_name="Dashboard", startrow=linha)
+            fill = DASH_FILLS[cor_key]
+            font = DASH_FONT_LIGHT if cor_key == "status" else DASH_FONT_DARK
+            for col_num in range(1, len(df_sec.columns) + 1):
+                cell = ws2.cell(row=linha, column=col_num)
+                cell.fill = fill
+                cell.font = font
+                cell.alignment = HEADER_ALIGN
+                cell.border = BORDER
+            ws2.row_dimensions[linha].height = 25
+
+            for r in range(linha + 1, linha + len(df_sec) + 1):
+                alt = ALT_FILL if (r % 2 == 0 and usa_alt) else PatternFill("solid", fgColor="FFFFFF")
+                for col_num in range(1, len(df_sec.columns) + 1):
+                    cell = ws2.cell(row=r, column=col_num)
+                    cell.font = DATA_FONT
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                    cell.fill = alt
+                    cell.border = BORDER
+
+            linha += len(df_sec) + 3
+
+        ajustar_colunas(ws2)
 
     buffer.seek(0)
-
     st.download_button(
         label="📥 Baixar Excel completo",
         data=buffer,
-        file_name=f"RO_chamados_{datetime.now(BRASILIA).strftime('%Y%m%d_%H%M')}.xlsx",
+        file_name=f"ROC_chamados_{datetime.now(BRASILIA).strftime('%Y%m%d_%H%M')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True
     )
