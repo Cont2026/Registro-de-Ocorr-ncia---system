@@ -125,8 +125,8 @@ def pagina_dashboard():
     st.info("Em construção — próximo passo.")
 
 def pagina_calendario():
-    st.title("📅 Calendário de Fechamento")
-    st.info("Em construção — próximo passo.")
+    from modules.calendario import tela_calendario
+    tela_calendario()
 
 def pagina_admin():
     from modules.admin import tela_admin
