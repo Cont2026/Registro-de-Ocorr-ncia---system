@@ -102,19 +102,11 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# =============================================
-# SESSÃO
-# =============================================
-
 if "logado" not in st.session_state:
     st.session_state.logado = False
     st.session_state.usuario = None
     st.session_state.perfil = None
     st.session_state.setor = None
-
-# =============================================
-# LOGO
-# =============================================
 
 def carregar_logo():
     try:
@@ -123,14 +115,9 @@ def carregar_logo():
     except:
         return None
 
-# =============================================
-# LOGIN
-# =============================================
-
 def tela_login():
     logo_b64 = carregar_logo()
     logo_html = f"<img src='data:image/png;base64,{logo_b64}' style='width:160px; margin-bottom:16px;'/>" if logo_b64 else ""
-
     col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
         st.markdown("<br><br>", unsafe_allow_html=True)
@@ -139,22 +126,18 @@ def tela_login():
                 <div style='text-align:center; margin-bottom:32px;'>
                     {logo_html}
                     <p style='font-family:Montserrat,sans-serif; font-weight:800;
-                    font-size:2.2rem; letter-spacing:6px; color:#FAC318;
-                    text-shadow: 0 2px 8px rgba(4,23,71,0.15); margin:0 0 8px;'>ROC</p>
+                    font-size:2.2rem; letter-spacing:6px; color:#FAC318; margin:0 0 8px;'>ROC</p>
                     <p style='font-family:Montserrat,sans-serif; font-weight:600;
                     font-size:0.95rem; color:#041747; margin:0;'>Registro de Ocorrências Contábeis</p>
                     <p style='font-family:Montserrat,sans-serif; font-weight:300;
                     font-size:0.8rem; color:gray; margin:4px 0 0;'>Grupo LLE</p>
                 </div>
         """, unsafe_allow_html=True)
-
         with st.form("form_login"):
             login = st.text_input("Usuário", placeholder="seu.login")
             senha = st.text_input("Senha", type="password", placeholder="••••••••")
             entrar = st.form_submit_button("Entrar", use_container_width=True)
-
         st.markdown("</div>", unsafe_allow_html=True)
-
         if entrar:
             conn = get_conn()
             cur = conn.cursor()
@@ -174,14 +157,10 @@ def tela_login():
             else:
                 st.error("Usuário ou senha incorretos.")
 
-# =============================================
-# SIDEBAR
-# =============================================
-
 def sidebar():
     logo_b64 = carregar_logo()
     with st.sidebar:
-       if logo_b64:
+        if logo_b64:
             st.markdown(f"""
                 <div style='padding:8px 0 16px;
                 border-bottom:1px solid rgba(255,255,255,0.15); margin-bottom:16px;'>
@@ -196,7 +175,7 @@ def sidebar():
             """, unsafe_allow_html=True)
         else:
             st.markdown("""
-                <div style='padding:16px 0 16px;
+                <div style='padding:8px 0 16px;
                 border-bottom:1px solid rgba(255,255,255,0.15); margin-bottom:16px;'>
                     <p style='font-family:Montserrat,sans-serif; font-weight:800;
                     font-size:2rem; letter-spacing:5px; color:#FAC318; margin:0;'>ROC</p>
@@ -250,15 +229,7 @@ def sidebar():
             </div>
         """, unsafe_allow_html=True)
 
-# =============================================
-# IMPORTAR MÓDULOS
-# =============================================
-
 from modules.chamados import tela_novo_chamado, tela_meus_chamados, tela_todos_chamados
-
-# =============================================
-# PÁGINAS
-# =============================================
 
 def pagina_dashboard():
     from modules.dashboard import tela_dashboard
@@ -272,27 +243,18 @@ def pagina_admin():
     from modules.admin import tela_admin
     tela_admin()
 
-# =============================================
-# ROTEADOR
-# =============================================
-
 def main():
     init_db()
-
     if not st.session_state.logado:
         tela_login()
         return
-
     if "pagina" not in st.session_state:
         if st.session_state.perfil == "contabilidade":
             st.session_state.pagina = "dashboard"
         else:
             st.session_state.pagina = "novo_chamado"
-
     sidebar()
-
     pagina = st.session_state.pagina
-
     if pagina == "dashboard":
         pagina_dashboard()
     elif pagina == "todos_chamados":
