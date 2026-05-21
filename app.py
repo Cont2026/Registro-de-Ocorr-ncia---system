@@ -1,7 +1,7 @@
 import streamlit as st
-import sqlite3
 import os
 from datetime import datetime
+from database.connection import get_conn, init_db
 
 # =============================================
 # CONFIGURAÇÃO DA PÁGINA
@@ -13,24 +13,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# =============================================
-# BANCO DE DADOS
-# =============================================
-
-DB_PATH = "database/ro.db"
-
-def init_db():
-    os.makedirs("database", exist_ok=True)
-    os.makedirs("uploads", exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    with open("database/schema.sql", "r", encoding="utf-8") as f:
-        conn.executescript(f.read())
-    conn.commit()
-    conn.close()
-
-def get_conn():
-    return sqlite3.connect(DB_PATH)
 
 # =============================================
 # SESSÃO
@@ -66,10 +48,11 @@ def tela_login():
             conn = get_conn()
             cur = conn.cursor()
             cur.execute(
-                "SELECT nome, perfil FROM usuarios WHERE login=? AND senha=? AND ativo=1",
+                "SELECT nome, perfil FROM usuarios WHERE login=%s AND senha=%s AND ativo=1",
                 (login.strip(), senha.strip())
             )
             row = cur.fetchone()
+            cur.close()
             conn.close()
 
             if row:
