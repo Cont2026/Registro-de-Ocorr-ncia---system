@@ -5,7 +5,7 @@ def tela_admin():
     st.title("⚙️ Administração")
     st.markdown("---")
 
-    aba = st.tabs(["👥 Usuários e Setores", "📌 Tipos de Inconsistência", "🔍 Motivos"])
+    aba = st.tabs(["👥 Usuários e Setores", "📋 Abertura de Período / Descontabilização"])
 
     # =============================================
     # ABA 1 — USUÁRIOS E SETORES
@@ -79,14 +79,14 @@ def tela_admin():
                     conn.close()
                     st.success(f"✅ Setor '{novo_nome}' adicionado!")
                     st.rerun()
-                except Exception as e:
+                except Exception:
                     st.error("⚠️ Login já existe. Escolha outro login.")
 
     # =============================================
-    # ABA 2 — TIPOS DE INCONSISTÊNCIA
+    # ABA 2 — TIPOS
     # =============================================
     with aba[1]:
-        st.subheader("Tipos de Inconsistência cadastrados")
+        st.subheader("Tipos cadastrados")
 
         conn = get_conn()
         cur = conn.cursor()
@@ -118,7 +118,7 @@ def tela_admin():
                     st.rerun()
 
         st.markdown("---")
-        st.subheader("➕ Novo Tipo de Inconsistência")
+        st.subheader("➕ Novo Tipo")
         with st.form("form_novo_tipo"):
             novo_tipo = st.text_input("Nome do tipo *")
             salvar_tipo = st.form_submit_button("➕ Adicionar", use_container_width=True)
@@ -138,60 +138,3 @@ def tela_admin():
                     st.rerun()
                 except Exception:
                     st.error("⚠️ Esse tipo já existe.")
-
-    # =============================================
-    # ABA 3 — MOTIVOS
-    # =============================================
-    with aba[2]:
-        st.subheader("Motivos cadastrados")
-
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT id, nome, ativo FROM motivos ORDER BY nome")
-        motivos = cur.fetchall()
-        cur.close()
-        conn.close()
-
-        for m in motivos:
-            mid, nome, ativo = m
-            status_icon = "🟢" if ativo else "🔴"
-            with st.expander(f"{status_icon} {nome}"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    novo_nome_motivo = st.text_input("Nome", value=nome, key=f"motivo_nome_{mid}")
-                with col2:
-                    novo_ativo_motivo = st.selectbox("Status", [1, 0], index=0 if ativo else 1,
-                                                     format_func=lambda x: "Ativo" if x == 1 else "Inativo",
-                                                     key=f"motivo_ativo_{mid}")
-                if st.button("💾 Salvar", key=f"salvar_motivo_{mid}"):
-                    conn = get_conn()
-                    cur = conn.cursor()
-                    cur.execute("UPDATE motivos SET nome=%s, ativo=%s WHERE id=%s",
-                                (novo_nome_motivo.strip(), novo_ativo_motivo, mid))
-                    conn.commit()
-                    cur.close()
-                    conn.close()
-                    st.success("✅ Motivo atualizado!")
-                    st.rerun()
-
-        st.markdown("---")
-        st.subheader("➕ Novo Motivo")
-        with st.form("form_novo_motivo"):
-            novo_motivo = st.text_input("Nome do motivo *")
-            salvar_motivo = st.form_submit_button("➕ Adicionar", use_container_width=True)
-
-        if salvar_motivo:
-            if not novo_motivo.strip():
-                st.error("⚠️ Preencha o nome.")
-            else:
-                try:
-                    conn = get_conn()
-                    cur = conn.cursor()
-                    cur.execute("INSERT INTO motivos (nome) VALUES (%s)", (novo_motivo.strip(),))
-                    conn.commit()
-                    cur.close()
-                    conn.close()
-                    st.success(f"✅ Motivo '{novo_motivo}' adicionado!")
-                    st.rerun()
-                except Exception:
-                    st.error("⚠️ Esse motivo já existe.")
