@@ -1,8 +1,7 @@
 import streamlit as st
+import base64
 from datetime import datetime
 from database.connection import get_conn, init_db
-import base64
-import os
 
 st.set_page_config(
     page_title="ROC - Registro de Ocorrências Contábeis",
@@ -72,49 +71,12 @@ st.markdown("""
             color: #041747 !important;
             border-color: #FAC318 !important;
         }
-        .roc-logo {
-            font-family: 'Montserrat', sans-serif;
-            font-weight: 800;
-            font-size: 2rem;
-            letter-spacing: 3px;
-            color: #041747;
-            margin: 0;
-        }
-        .roc-logo-sidebar {
-            font-family: 'Montserrat', sans-serif;
-            font-weight: 800;
-            font-size: 1.4rem;
-            letter-spacing: 3px;
-            color: #FAC318;
-            margin: 0;
-        }
-        .roc-subtitle {
-            font-family: 'Montserrat', sans-serif;
-            font-weight: 300;
-            font-size: 0.85rem;
-            color: gray;
-            margin: 0;
-        }
-        .roc-subtitle-sidebar {
-            font-family: 'Montserrat', sans-serif;
-            font-weight: 300;
-            font-size: 0.75rem;
-            color: rgba(255,255,255,0.6);
-            margin: 0;
-        }
         .login-card {
             background: white;
             border-radius: 16px;
             padding: 40px;
             box-shadow: 0 4px 24px rgba(4,23,71,0.10);
             border-top: 4px solid #FAC318;
-        }
-        .metric-card {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            border-left: 4px solid #0071FE;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
         }
         div[data-testid="metric-container"] {
             background: white;
@@ -164,13 +126,23 @@ def tela_login():
     col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
         st.markdown("<br><br>", unsafe_allow_html=True)
-        st.markdown("""
+
+        # Logo na tela de login
+        try:
+            with open("assets/LOGO-GRUPO-LLE-BRANCO.png", "rb") as f:
+                logo_b64 = base64.b64encode(f.read()).decode()
+            logo_html = f"<img src='data:image/png;base64,{logo_b64}' style='width:180px; margin-bottom:16px;'/>"
+        except:
+            logo_html = ""
+
+        st.markdown(f"""
             <div class='login-card'>
                 <div style='text-align:center; margin-bottom: 32px;'>
+                    {logo_html}
                     <div style='display:inline-block; background:#041747;
-                    border-radius:12px; padding:12px 24px; margin-bottom:16px;'>
+                    border-radius:12px; padding:12px 28px; margin-bottom:12px;'>
                         <p style='font-family:Montserrat,sans-serif; font-weight:800;
-                        font-size:1.8rem; letter-spacing:4px; color:#FAC318; margin:0;'>ROC</p>
+                        font-size:2rem; letter-spacing:5px; color:#FAC318; margin:0;'>ROC</p>
                     </div>
                     <p style='font-family:Montserrat,sans-serif; font-weight:600;
                     font-size:1rem; color:#041747; margin:0;'>Registro de Ocorrências Contábeis</p>
@@ -212,18 +184,31 @@ def tela_login():
 
 def sidebar():
     with st.sidebar:
+
+        # Logo na sidebar
+        try:
+            with open("assets/LOGO-GRUPO-LLE-BRANCO.png", "rb") as f:
+                logo_b64 = base64.b64encode(f.read()).decode()
+            st.markdown(f"""
+                <div style='padding: 16px 0 8px; text-align:center;'>
+                    <img src='data:image/png;base64,{logo_b64}'
+                    style='width:75%; max-width:160px; display:block; margin:0 auto 12px;'/>
+                </div>
+            """, unsafe_allow_html=True)
+        except:
+            pass
+
         st.markdown("""
-            <div style='padding: 16px 0 24px; border-bottom: 1px solid rgba(255,255,255,0.15); margin-bottom: 16px;'>
-                <div style='background: rgba(250,195,24,0.15); border-radius: 10px;
-                padding: 10px 16px; margin-bottom: 12px; display:inline-block;'>
+            <div style='text-align:center; padding-bottom:16px;
+            border-bottom: 1px solid rgba(255,255,255,0.15); margin-bottom:16px;'>
+                <div style='background: rgba(250,195,24,0.15); border-radius:10px;
+                padding:10px 20px; display:inline-block;'>
                     <p style='font-family:Montserrat,sans-serif; font-weight:800;
-                    font-size:1.3rem; letter-spacing:3px; color:#FAC318; margin:0;'>ROC</p>
+                    font-size:2rem; letter-spacing:5px; color:#FAC318; margin:0;'>ROC</p>
                 </div>
                 <p style='font-family:Montserrat,sans-serif; font-weight:300;
-                font-size:0.72rem; color:rgba(255,255,255,0.55); margin:0;'>
+                font-size:0.72rem; color:rgba(255,255,255,0.55); margin:6px 0 0;'>
                 Registro de Ocorrências Contábeis</p>
-                <p style='font-family:Montserrat,sans-serif; font-weight:400;
-                font-size:0.7rem; color:rgba(250,195,24,0.7); margin:4px 0 0;'>Grupo LLE</p>
             </div>
         """, unsafe_allow_html=True)
 
