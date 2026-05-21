@@ -10,17 +10,34 @@ def formatar_data(d):
         return d.strftime("%d/%m/%Y") if hasattr(d, 'strftime') else str(d)
     return "—"
 
-def status_data(d):
-    if not d:
-        return "⚪"
+def card_calendario(titulo, data, cor_borda, cor_titulo):
     hoje = datetime.now(BRASILIA).date()
-    data = d.date() if hasattr(d, 'date') else d
-    if data < hoje:
-        return "✅"
-    elif data == hoje:
-        return "🟡"
+
+    if not data:
+        icone = "⚪"
+        status = "Não definida"
     else:
-        return "🔵"
+        d = data.date() if hasattr(data, 'date') else data
+        if d < hoje:
+            icone = "✅"
+            status = "Concluída"
+        elif d == hoje:
+            icone = "🟡"
+            status = "Hoje"
+        else:
+            icone = "🔵"
+            status = "Pendente"
+
+    return f"""
+    <div style='border: 2px solid {cor_borda}; border-radius: 12px; padding: 18px;
+    text-align: center; margin: 4px;'>
+        <p style='font-size:12px; color:{cor_titulo}; font-weight:600;
+        text-transform:uppercase; letter-spacing:1px; margin:0;'>{titulo}</p>
+        <p style='font-size:26px; margin:8px 0 4px;'>{icone}</p>
+        <p style='font-size:15px; font-weight:600; margin:0;'>{formatar_data(data)}</p>
+        <p style='font-size:11px; color:gray; margin:4px 0 0;'>{status}</p>
+    </div>
+    """
 
 def tela_calendario():
     st.title("📅 Calendário de Fechamento")
@@ -48,40 +65,13 @@ def tela_calendario():
             col1, col2, col3, col4 = st.columns(4)
 
             with col1:
-                st.markdown(f"""
-                <div style='border:1px solid #333; border-radius:10px; padding:16px; text-align:center;'>
-                    <p style='font-size:12px; color:gray; margin:0;'>Importação 1</p>
-                    <p style='font-size:22px; margin:4px 0;'>{status_data(imp1)}</p>
-                    <p style='font-size:14px; font-weight:600; margin:0;'>{formatar_data(imp1)}</p>
-                </div>
-                """, unsafe_allow_html=True)
-
+                st.markdown(card_calendario("Importação 1", imp1, "#3B82F6", "#3B82F6"), unsafe_allow_html=True)
             with col2:
-                st.markdown(f"""
-                <div style='border:1px solid #333; border-radius:10px; padding:16px; text-align:center;'>
-                    <p style='font-size:12px; color:gray; margin:0;'>Importação 2</p>
-                    <p style='font-size:22px; margin:4px 0;'>{status_data(imp2)}</p>
-                    <p style='font-size:14px; font-weight:600; margin:0;'>{formatar_data(imp2)}</p>
-                </div>
-                """, unsafe_allow_html=True)
-
+                st.markdown(card_calendario("Importação 2", imp2, "#EAB308", "#EAB308"), unsafe_allow_html=True)
             with col3:
-                st.markdown(f"""
-                <div style='border:1px solid #333; border-radius:10px; padding:16px; text-align:center;'>
-                    <p style='font-size:12px; color:gray; margin:0;'>Importação 3</p>
-                    <p style='font-size:22px; margin:4px 0;'>{status_data(imp3)}</p>
-                    <p style='font-size:14px; font-weight:600; margin:0;'>{formatar_data(imp3)}</p>
-                </div>
-                """, unsafe_allow_html=True)
-
+                st.markdown(card_calendario("Importação 3", imp3, "#F97316", "#F97316"), unsafe_allow_html=True)
             with col4:
-                st.markdown(f"""
-                <div style='border:1px solid #333; border-radius:10px; padding:16px; text-align:center;'>
-                    <p style='font-size:12px; color:gray; margin:0;'>Fechamento</p>
-                    <p style='font-size:22px; margin:4px 0;'>{status_data(fechamento)}</p>
-                    <p style='font-size:14px; font-weight:600; margin:0;'>{formatar_data(fechamento)}</p>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(card_calendario("Fechamento", fechamento, "#EF4444", "#EF4444"), unsafe_allow_html=True)
 
             st.markdown("<br>", unsafe_allow_html=True)
 
