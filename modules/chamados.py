@@ -36,6 +36,45 @@ def verificar_bloqueio(data_nota):
         return True, "⛔ O prazo para solicitações da competência selecionada foi encerrado conforme regra de fechamento contábil."
     return False, ""
 
+@st.cache_data(ttl=30)
+def carregar_tipos():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT nome FROM tipos_inconsistencia WHERE ativo=1 ORDER BY nome")
+    tipos = [r[0] for r in cur.fetchall()]
+    cur.close()
+    release_conn(conn)
+    return tipos
+
+@st.cache_data(ttl=30)
+def carregar_meus_chamados(setor):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT protocolo, tipo_inconsistencia, empresa,
+               status, prioridade, nome_parceiro, numero_nota, aberto_em
+        FROM chamados WHERE setor = %s
+        ORDER BY aberto_em DESC
+    """, (setor,))
+    rows = cur.fetchall()
+    cur.close()
+    release_conn(conn)
+    return rows
+
+@st.cache_data(ttl=30)
+def carregar_todos_chamados():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT protocolo, setor, tipo_inconsistencia,
+               empresa, status, prioridade, nome_parceiro, numero_nota, aberto_em
+        FROM chamados ORDER BY aberto_em DESC
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    release_conn(conn)
+    return rows
+
 def tela_novo_chamado():
     st.title("➕ Novo Chamado")
     setor_logado = st.session_state.setor
@@ -43,12 +82,7 @@ def tela_novo_chamado():
     st.markdown("Preencha todos os campos obrigatórios para registrar a ocorrência.")
     st.markdown("---")
 
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT nome FROM tipos_inconsistencia WHERE ativo=1 ORDER BY nome")
-    tipos = [r[0] for r in cur.fetchall()]
-    cur.close()
-    release_conn(conn)
+    tipos = carregar_tipos()
 
     tipo_nota = st.selectbox("Tipo da Nota *", ["", "Compra", "Venda"], key="tipo_nota_select")
     if not tipo_nota:
@@ -138,24 +172,15 @@ def tela_novo_chamado():
         conn.commit()
         cur.close()
         release_conn(conn)
-        st.success(f"✅ Chamado registrado com sucesso! Protocolo: **{protocolo}**")
+        st.cache_data.clear()
+        st.success(f"✅ Chamado registrado! Protocolo: **{protocolo}**")
         st.balloons()
 
 def tela_meus_chamados():
     st.title("📋 Meus Chamados")
     st.markdown("---")
 
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT protocolo, tipo_inconsistencia, empresa,
-               status, prioridade, nome_parceiro, numero_nota, aberto_em
-        FROM chamados WHERE setor = %s
-        ORDER BY aberto_em DESC
-    """, (st.session_state.setor,))
-    rows = cur.fetchall()
-    cur.close()
-    release_conn(conn)
+    rows = carregar_meus_chamados(st.session_state.setor)
 
     if not rows:
         st.info("Nenhum chamado registrado ainda.")
@@ -176,16 +201,7 @@ def tela_todos_chamados():
     st.title("📋 Todos os Chamados")
     st.markdown("---")
 
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT protocolo, setor, tipo_inconsistencia,
-               empresa, status, prioridade, nome_parceiro, numero_nota, aberto_em
-        FROM chamados ORDER BY aberto_em DESC
-    """)
-    rows = cur.fetchall()
-    cur.close()
-    release_conn(conn)
+    rows = carregar_todos_chamados()
 
     if not rows:
         st.info("Nenhum chamado registrado ainda.")
@@ -238,5 +254,6 @@ def tela_todos_chamados():
                 conn.commit()
                 cur.close()
                 release_conn(conn)
+                st.cache_data.clear()
                 st.success("✅ Chamado atualizado!")
                 st.rerun()
