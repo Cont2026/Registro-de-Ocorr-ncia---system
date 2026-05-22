@@ -3,7 +3,7 @@ import os
 import calendar
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
-from database.connection import get_conn
+from database.connection import get_conn, release_conn
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
 
@@ -13,7 +13,7 @@ def gerar_protocolo():
     cur.execute("SELECT COUNT(*) FROM chamados")
     total = cur.fetchone()[0]
     cur.close()
-    conn.close()
+    release_conn(conn)
     agora = datetime.now(BRASILIA)
     return f"ROC-{agora.strftime('%Y%m')}-{str(total + 1).zfill(4)}"
 
@@ -48,10 +48,9 @@ def tela_novo_chamado():
     cur.execute("SELECT nome FROM tipos_inconsistencia WHERE ativo=1 ORDER BY nome")
     tipos = [r[0] for r in cur.fetchall()]
     cur.close()
-    conn.close()
+    release_conn(conn)
 
     tipo_nota = st.selectbox("Tipo da Nota *", ["", "Compra", "Venda"], key="tipo_nota_select")
-
     if not tipo_nota:
         st.info("Selecione o tipo da nota para continuar o preenchimento.")
         return
@@ -78,7 +77,6 @@ def tela_novo_chamado():
             numero_nota = st.text_input("📄 Número da Nota *")
             valor = st.text_input("💰 Valor *", placeholder="0,00")
             arquivo = st.file_uploader("📎 Anexo (opcional)", type=["pdf","png","jpg","xlsx","xml"])
-
         observacao = st.text_area("📝 Observação Complementar", placeholder="Informações adicionais...")
         st.markdown("---")
         enviar = st.form_submit_button("📨 Enviar Chamado", use_container_width=True)
@@ -95,7 +93,6 @@ def tela_novo_chamado():
             erros.append("Data da Nota")
         if tipo_nota == "Venda" and data_negociacao is None:
             erros.append("Data de Negociação")
-
         if erros:
             st.error(f"⚠️ Preencha os campos obrigatórios: {', '.join(erros)}")
             return
@@ -130,8 +127,7 @@ def tela_novo_chamado():
                 valor, observacao, arquivo_nome, status, aberto_em
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (
-            protocolo, setor_logado,
-            empresa, tipo, prioridade, nf_retorna,
+            protocolo, setor_logado, empresa, tipo, prioridade, nf_retorna,
             nome_parceiro.strip(), numero_nota.strip(), tipo_nota,
             data_entrada if data_entrada else None,
             None,
@@ -141,8 +137,7 @@ def tela_novo_chamado():
         ))
         conn.commit()
         cur.close()
-        conn.close()
-
+        release_conn(conn)
         st.success(f"✅ Chamado registrado com sucesso! Protocolo: **{protocolo}**")
         st.balloons()
 
@@ -160,14 +155,13 @@ def tela_meus_chamados():
     """, (st.session_state.setor,))
     rows = cur.fetchall()
     cur.close()
-    conn.close()
+    release_conn(conn)
 
     if not rows:
         st.info("Nenhum chamado registrado ainda.")
         return
 
     status_cor = {"Aberto": "🔴", "Em andamento": "🟡", "Resolvido": "🟢", "Cancelado": "⚫"}
-
     for row in rows:
         protocolo, tipo, empresa, status, prioridade, parceiro, nf, aberto_em = row
         icone = status_cor.get(status, "⚪")
@@ -191,7 +185,7 @@ def tela_todos_chamados():
     """)
     rows = cur.fetchall()
     cur.close()
-    conn.close()
+    release_conn(conn)
 
     if not rows:
         st.info("Nenhum chamado registrado ainda.")
@@ -243,6 +237,6 @@ def tela_todos_chamados():
                 """, (novo_status, resolucao, agora, novo_status, agora, protocolo))
                 conn.commit()
                 cur.close()
-                conn.close()
+                release_conn(conn)
                 st.success("✅ Chamado atualizado!")
                 st.rerun()
