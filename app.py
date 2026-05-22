@@ -2,12 +2,7 @@ import streamlit as st
 import base64
 from database.connection import init_db, run_query
 
-st.set_page_config(
-    page_title="ROC - Registro de Ocorrências Contábeis",
-    page_icon="📋",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="ROC - Registro de Ocorrências Contábeis", page_icon="📋", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -44,20 +39,23 @@ if "logado" not in st.session_state:
     st.session_state.pagina = None
 
 @st.cache_resource
+def inicializar_banco():
+    init_db()
+    return True
+
+@st.cache_resource
 def carregar_logo_branca():
     try:
         with open("assets/LOGO-GRUPO-LLE-BRANCO.png", "rb") as f:
             return base64.b64encode(f.read()).decode()
-    except:
-        return None
+    except: return None
 
 @st.cache_resource
 def carregar_logo_colorida():
     try:
         with open("assets/LOGO-GRUPO-LLE-COR-OFICIAL-PRINCIPAL.png", "rb") as f:
             return base64.b64encode(f.read()).decode()
-    except:
-        return None
+    except: return None
 
 @st.cache_resource
 def get_chamados():
@@ -81,10 +79,7 @@ def get_admin():
 
 @st.cache_data(ttl=300)
 def buscar_usuario(login, senha):
-    rows = run_query(
-        "SELECT nome, perfil FROM usuarios WHERE login=%s AND senha=%s AND ativo=1",
-        (login, senha), fetch=True
-    )
+    rows = run_query("SELECT nome, perfil FROM usuarios WHERE login=%s AND senha=%s AND ativo=1", (login, senha), fetch=True)
     return rows[0] if rows else None
 
 def tela_login():
@@ -97,12 +92,9 @@ def tela_login():
             <div class='login-card'>
                 <div style='text-align:center;margin-bottom:32px;'>
                     {logo_html}
-                    <p style='font-family:Montserrat,sans-serif;font-weight:800;
-                    font-size:2.2rem;letter-spacing:6px;color:#041747;margin:20px 0 8px;'>ROC</p>
-                    <p style='font-family:Montserrat,sans-serif;font-weight:600;
-                    font-size:0.95rem;color:#041747;margin:0;'>Registro de Ocorrências Contábeis</p>
-                    <p style='font-family:Montserrat,sans-serif;font-weight:300;
-                    font-size:0.8rem;color:gray;margin:4px 0 0;'>Grupo LLE</p>
+                    <p style='font-family:Montserrat,sans-serif;font-weight:800;font-size:2.2rem;letter-spacing:6px;color:#041747;margin:20px 0 8px;'>ROC</p>
+                    <p style='font-family:Montserrat,sans-serif;font-weight:600;font-size:0.95rem;color:#041747;margin:0;'>Registro de Ocorrências Contábeis</p>
+                    <p style='font-family:Montserrat,sans-serif;font-weight:300;font-size:0.8rem;color:gray;margin:4px 0 0;'>Grupo LLE</p>
                 </div>
         """, unsafe_allow_html=True)
         with st.form("form_login"):
@@ -127,64 +119,33 @@ def sidebar():
     with st.sidebar:
         if logo_b64:
             st.markdown(f"""
-                <div style='background:#041747;padding:24px 16px 20px;
-                margin:-1rem -1rem 20px -1rem;
-                border-bottom:1px solid rgba(255,255,255,0.15);'>
-                    <img src='data:image/png;base64,{logo_b64}'
-                    style='width:80%;max-width:170px;display:block;margin:0 0 16px;'/>
-                    <p style='font-family:Montserrat,sans-serif;font-weight:800;
-                    font-size:2rem;letter-spacing:5px;color:#FAC318;margin:0;'>ROC</p>
-                    <p style='font-family:Montserrat,sans-serif;font-weight:300;
-                    font-size:0.72rem;color:rgba(255,255,255,0.55);margin:4px 0 0;'>
-                    Registro de Ocorrências Contábeis</p>
+                <div style='background:#041747;padding:24px 16px 20px;margin:-1rem -1rem 20px -1rem;border-bottom:1px solid rgba(255,255,255,0.15);'>
+                    <img src='data:image/png;base64,{logo_b64}' style='width:80%;max-width:170px;display:block;margin:0 0 16px;'/>
+                    <p style='font-family:Montserrat,sans-serif;font-weight:800;font-size:2rem;letter-spacing:5px;color:#FAC318;margin:0;'>ROC</p>
+                    <p style='font-family:Montserrat,sans-serif;font-weight:300;font-size:0.72rem;color:rgba(255,255,255,0.55);margin:4px 0 0;'>Registro de Ocorrências Contábeis</p>
                 </div>
             """, unsafe_allow_html=True)
-
         st.markdown(f"""
             <div style='margin-bottom:16px;'>
-                <p style='font-size:0.75rem;color:rgba(255,255,255,0.5);
-                font-family:Montserrat,sans-serif;margin:0;'>Logado como</p>
-                <p style='font-size:0.9rem;font-weight:600;color:white;
-                font-family:Montserrat,sans-serif;margin:0;'>👤 {st.session_state.usuario}</p>
+                <p style='font-size:0.75rem;color:rgba(255,255,255,0.5);font-family:Montserrat,sans-serif;margin:0;'>Logado como</p>
+                <p style='font-size:0.9rem;font-weight:600;color:white;font-family:Montserrat,sans-serif;margin:0;'>👤 {st.session_state.usuario}</p>
             </div>
         """, unsafe_allow_html=True)
-
         st.markdown("---")
-
-        paginas = {
-            "📊 Dashboard": "dashboard",
-            "📋 Todos os Chamados": "todos_chamados",
-            "📅 Calendário": "calendario",
-            "⚙️ Administração": "admin",
-        } if st.session_state.perfil == "contabilidade" else {
-            "➕ Novo Chamado": "novo_chamado",
-            "📋 Meus Chamados": "meus_chamados",
-            "📅 Calendário": "calendario",
-        }
-
+        paginas = {"📊 Dashboard":"dashboard","📋 Todos os Chamados":"todos_chamados","📅 Calendário":"calendario","⚙️ Administração":"admin"} if st.session_state.perfil == "contabilidade" else {"➕ Novo Chamado":"novo_chamado","📋 Meus Chamados":"meus_chamados","📅 Calendário":"calendario"}
         for label, key in paginas.items():
             if st.button(label, use_container_width=True, key=f"nav_{key}"):
                 st.session_state.pagina = key
                 st.rerun()
-
         st.markdown("---")
         if st.button("🚪 Sair", use_container_width=True):
-            for k in list(st.session_state.keys()):
-                del st.session_state[k]
+            for k in list(st.session_state.keys()): del st.session_state[k]
             st.rerun()
-
         st.markdown("""
-            <div style='position:fixed;bottom:20px;left:0;width:260px;
-            text-align:center;padding:0 16px;'>
-                <p style='font-size:0.65rem;color:rgba(255,255,255,0.3);
-                font-family:Montserrat,sans-serif;margin:0;'>ROC © 2026 · Grupo LLE</p>
+            <div style='position:fixed;bottom:20px;left:0;width:260px;text-align:center;padding:0 16px;'>
+                <p style='font-size:0.65rem;color:rgba(255,255,255,0.3);font-family:Montserrat,sans-serif;margin:0;'>ROC © 2026 · Grupo LLE</p>
             </div>
         """, unsafe_allow_html=True)
-
-@st.cache_resource
-def inicializar_banco():
-    init_db()
-    return True
 
 def main():
     inicializar_banco()
