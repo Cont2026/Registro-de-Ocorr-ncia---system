@@ -48,61 +48,72 @@ def tela_admin():
                         st.error("⚠️ Login já existe.")
 
     with aba[1]:
-        st.subheader("Tipos cadastrados")
-        tipos = run_query("SELECT id, nome, ativo FROM tipos_inconsistencia ORDER BY nome", fetch=True)
+        st.subheader("Gerenciar Tipos")
 
-        for tid, nome, ativo in tipos:
-            icone = "🟢" if ativo else "🔴"
-            with st.expander(f"{icone} {nome}"):
-                c1, c2 = st.columns(2)
-                novo_nome = c1.text_input("Nome", value=nome, key=f"tn_{tid}")
-                novo_ativo = c2.selectbox("Status", [1, 0], index=0 if ativo else 1,
-                                          format_func=lambda x: "Ativo" if x == 1 else "Inativo",
-                                          key=f"ta_{tid}")
-                col_salvar, col_excluir = st.columns(2)
-                with col_salvar:
-                    if st.button("💾 Salvar", key=f"ts_{tid}"):
-                        run_query("UPDATE tipos_inconsistencia SET nome=%s, ativo=%s WHERE id=%s",
-                                  (novo_nome.strip(), novo_ativo, tid))
-                        st.cache_data.clear()
-                        st.success("✅ Atualizado!")
-                        st.rerun()
-                with col_excluir:
-                    if st.button("🗑️ Excluir", key=f"tex_{tid}", type="secondary"):
-                        st.session_state[f"confirmar_exclusao_{tid}"] = True
-                        st.rerun()
+        tipos = run_query("SELECT id, nome FROM tipos_inconsistencia WHERE ativo=1 ORDER BY nome", fetch=True)
 
-                if st.session_state.get(f"confirmar_exclusao_{tid}"):
-                    st.warning(f"⚠️ Tem certeza que deseja excluir **{nome}**? Esta ação não pode ser desfeita.")
-                    cc1, cc2 = st.columns(2)
-                        with cc1:
-                        if st.button("✅ Confirmar exclusão", key=f"conf_{tid}"):
-                            try:
-                                run_query("DELETE FROM tipos_inconsistencia WHERE id=%s", (tid,))
-                                st.session_state.pop(f"confirmar_exclusao_{tid}", None)
-                                st.cache_data.clear()
-                                st.cache_resource.clear()
-                                st.success("✅ Excluído!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"⚠️ Não foi possível excluir. Este tipo pode estar em uso em chamados existentes.")
-                    with cc2:
-                        if st.button("❌ Cancelar", key=f"canc_{tid}"):
-                            st.session_state.pop(f"confirmar_exclusao_{tid}", None)
-                            st.rerun()
+        # Inicializa lista editável na sessão
+        if "lista_tipos" not in st.session_state or st.session_state.get("reload_tipos"):
+            st.session_state.lista_tipos = [{"id": t[0], "nome": t[1]} for t in tipos]
+            st.session_state.reload_tipos = False
+
+        st.markdown("Edite, adicione ou remova os tipos abaixo. Clique em **Salvar alterações** quando terminar.")
+        st.markdown("---")
+
+        # Renderiza lista editável
+        para_remover = []
+        for i, item in enumerate(st.session_state.lista_tipos):
+            c1, c2 = st.columns([5, 1])
+            with c1:
+                novo_nome = st.text_input(f"Tipo {i+1}", value=item["nome"], key=f"tipo_edit_{i}", label_visibility="collapsed")
+                st.session_state.lista_tipos[i]["nome"] = novo_nome
+            with c2:
+                if st.button("🗑️", key=f"rem_{i}", help="Remover este tipo"):
+                    para_remover.append(i)
+
+        for idx in sorted(para_remover, reverse=True):
+            st.session_state.lista_tipos.pop(idx)
+            st.rerun()
 
         st.markdown("---")
-        st.subheader("➕ Novo Tipo")
-        with st.form("form_tipo"):
-            novo = st.text_input("Nome *")
-            if st.form_submit_button("➕ Adicionar", use_container_width=True):
-                if not novo.strip():
-                    st.error("⚠️ Preencha o nome.")
-                else:
-                    try:
-                        run_query("INSERT INTO tipos_inconsistencia (nome) VALUES (%s)", (novo.strip(),))
-                        st.cache_data.clear()
-                        st.success(f"✅ '{novo}' adicionado!")
-                        st.rerun()
-                    except:
-                        st.error("⚠️ Já existe.")
+
+        # Adicionar novo
+        col_add, col_save = st.columns(2)
+        with col_add:
+            if st.button("➕ Adicionar novo tipo", use_container_width=True):
+                st.session_state.lista_tipos.append({"id": None, "nome": ""})
+                st.rerun()
+
+        with col_save:
+            if st.button("💾 Salvar alterações", use_container_width=True, type="primary"):
+                st.session_state.confirmar_save_tipos = True
+
+        # Confirmação antes de salvar
+        if st.session_state.get("confirmar_save_tipos"):
+            st.warning("⚠️ Tem certeza que deseja salvar todas as alterações na lista de tipos?")
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                if st.button("✅ Sim, salvar", use_container_width=True):
+                    # Remove todos e recria
+                    run_query("UPDATE tipos_inconsistencia SET ativo=0")
+                    for item in st.session_state.lista_tipos:
+                        if item["nome"].strip():
+                            if item["id"]:
+                                run_query("UPDATE tipos_inconsistencia SET nome=%s, ativo=1 WHERE id=%s",
+                                          (item["nome"].strip(), item["id"]))
+                            else:
+                                try:
+                                    run_query("INSERT INTO tipos_inconsistencia (nome, ativo) VALUES (%s, 1)",
+                                              (item["nome"].strip(),))
+                                except:
+                                    pass
+                    st.session_state.confirmar_save_tipos = False
+                    st.session_state.reload_tipos = True
+                    st.cache_data.clear()
+                    st.success("✅ Tipos salvos com sucesso!")
+                    st.rerun()
+            with cc2:
+                if st.button("❌ Cancelar", use_container_width=True):
+                    st.session_state.confirmar_save_tipos = False
+                    st.session_state.reload_tipos = True
+                    st.rerun()
