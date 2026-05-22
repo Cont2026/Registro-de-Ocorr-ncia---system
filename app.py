@@ -1,6 +1,6 @@
 import streamlit as st
 import base64
-from database.connection import get_conn, release_conn, init_db, run_query
+from database.connection import get_conn, init_db, run_query
 
 st.set_page_config(
     page_title="ROC - Registro de Ocorrências Contábeis",
