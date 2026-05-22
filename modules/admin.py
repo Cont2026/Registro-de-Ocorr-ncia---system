@@ -59,11 +59,33 @@ def tela_admin():
                 novo_ativo = c2.selectbox("Status", [1, 0], index=0 if ativo else 1,
                                           format_func=lambda x: "Ativo" if x == 1 else "Inativo",
                                           key=f"ta_{tid}")
-                if st.button("💾 Salvar", key=f"ts_{tid}"):
-                    run_query("UPDATE tipos_inconsistencia SET nome=%s, ativo=%s WHERE id=%s",
-                              (novo_nome.strip(), novo_ativo, tid))
-                    st.success("✅ Atualizado!")
-                    st.rerun()
+                col_salvar, col_excluir = st.columns(2)
+                with col_salvar:
+                    if st.button("💾 Salvar", key=f"ts_{tid}"):
+                        run_query("UPDATE tipos_inconsistencia SET nome=%s, ativo=%s WHERE id=%s",
+                                  (novo_nome.strip(), novo_ativo, tid))
+                        st.cache_data.clear()
+                        st.success("✅ Atualizado!")
+                        st.rerun()
+                with col_excluir:
+                    if st.button("🗑️ Excluir", key=f"tex_{tid}", type="secondary"):
+                        st.session_state[f"confirmar_exclusao_{tid}"] = True
+                        st.rerun()
+
+                if st.session_state.get(f"confirmar_exclusao_{tid}"):
+                    st.warning(f"⚠️ Tem certeza que deseja excluir **{nome}**? Esta ação não pode ser desfeita.")
+                    cc1, cc2 = st.columns(2)
+                    with cc1:
+                        if st.button("✅ Confirmar exclusão", key=f"conf_{tid}"):
+                            run_query("DELETE FROM tipos_inconsistencia WHERE id=%s", (tid,))
+                            st.session_state.pop(f"confirmar_exclusao_{tid}", None)
+                            st.cache_data.clear()
+                            st.success("✅ Excluído!")
+                            st.rerun()
+                    with cc2:
+                        if st.button("❌ Cancelar", key=f"canc_{tid}"):
+                            st.session_state.pop(f"confirmar_exclusao_{tid}", None)
+                            st.rerun()
 
         st.markdown("---")
         st.subheader("➕ Novo Tipo")
@@ -75,6 +97,7 @@ def tela_admin():
                 else:
                     try:
                         run_query("INSERT INTO tipos_inconsistencia (nome) VALUES (%s)", (novo.strip(),))
+                        st.cache_data.clear()
                         st.success(f"✅ '{novo}' adicionado!")
                         st.rerun()
                     except:
