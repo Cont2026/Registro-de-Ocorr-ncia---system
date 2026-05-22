@@ -1,6 +1,6 @@
 import streamlit as st
 import base64
-from database.connection import run_query
+from database.connection import init_db, run_query
 
 st.set_page_config(
     page_title="ROC - Registro de Ocorrências Contábeis",
@@ -15,39 +15,19 @@ st.markdown("""
         html, body, [class*="css"], .stApp { font-family: 'Montserrat', sans-serif !important; }
         h1, h2, h3, h4, h5, h6 { font-family: 'Montserrat', sans-serif !important; font-weight: 600 !important; color: #041747 !important; }
         .stDataFrame, .stTable { font-family: 'Inter', sans-serif !important; }
-        .stButton > button {
-            font-family: 'Montserrat', sans-serif !important; font-weight: 600 !important;
-            border-radius: 8px !important; background-color: #041747 !important;
-            color: white !important; border: none !important; padding: 0.5rem 1rem !important;
-            transition: all 0.2s ease !important;
-        }
+        .stButton > button { font-family: 'Montserrat', sans-serif !important; font-weight: 600 !important; border-radius: 8px !important; background-color: #041747 !important; color: white !important; border: none !important; padding: 0.5rem 1rem !important; transition: all 0.2s ease !important; }
         .stButton > button:hover { background-color: #FAC318 !important; color: #041747 !important; }
-        .stTextInput > div > input, .stTextArea > div > textarea {
-            font-family: 'Montserrat', sans-serif !important;
-            border-radius: 8px !important; border: 1.5px solid #e0e0e0 !important;
-        }
+        .stTextInput > div > input, .stTextArea > div > textarea { font-family: 'Montserrat', sans-serif !important; border-radius: 8px !important; border: 1.5px solid #e0e0e0 !important; }
         .stSelectbox > div { font-family: 'Montserrat', sans-serif !important; }
         section[data-testid="stSidebar"] { background-color: #041747 !important; font-family: 'Montserrat', sans-serif !important; }
         section[data-testid="stSidebar"] * { color: white !important; }
-        section[data-testid="stSidebar"] .stButton > button {
-            background-color: transparent !important; color: white !important;
-            border: 1px solid rgba(255,255,255,0.2) !important;
-            text-align: left !important; font-weight: 500 !important;
-        }
-        section[data-testid="stSidebar"] .stButton > button:hover {
-            background-color: #FAC318 !important; color: #041747 !important; border-color: #FAC318 !important;
-        }
+        section[data-testid="stSidebar"] .stButton > button { background-color: transparent !important; color: white !important; border: 1px solid rgba(255,255,255,0.2) !important; text-align: left !important; font-weight: 500 !important; }
+        section[data-testid="stSidebar"] .stButton > button:hover { background-color: #FAC318 !important; color: #041747 !important; border-color: #FAC318 !important; }
         section[data-testid="stSidebar"] > div:first-child { padding-top: 0 !important; }
         section[data-testid="stSidebar"] > div > div:first-child { padding-top: 0 !important; margin-top: 0 !important; }
         section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { padding-top: 0 !important; gap: 0 !important; }
-        .login-card {
-            background: white; border-radius: 16px; padding: 40px;
-            box-shadow: 0 4px 24px rgba(4,23,71,0.10); border-top: 4px solid #041747;
-        }
-        div[data-testid="metric-container"] {
-            background: white; border-radius: 12px; padding: 16px;
-            border-left: 4px solid #FAC318; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-        }
+        .login-card { background: white; border-radius: 16px; padding: 40px; box-shadow: 0 4px 24px rgba(4,23,71,0.10); border-top: 4px solid #041747; }
+        div[data-testid="metric-container"] { background: white; border-radius: 12px; padding: 16px; border-left: 4px solid #FAC318; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
         div[data-testid="metric-container"] label { color: #041747 !important; font-weight: 600 !important; font-family: 'Montserrat', sans-serif !important; }
         .stExpander { border-radius: 10px !important; border: 1px solid #e8e8e8 !important; }
         .stTabs [data-baseweb="tab"] { font-family: 'Montserrat', sans-serif !important; font-weight: 500 !important; }
@@ -56,20 +36,12 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# =============================================
-# SESSÃO
-# =============================================
-
 if "logado" not in st.session_state:
     st.session_state.logado = False
     st.session_state.usuario = None
     st.session_state.perfil = None
     st.session_state.setor = None
     st.session_state.pagina = None
-
-# =============================================
-# LOGO COM CACHE
-# =============================================
 
 @st.cache_resource
 def carregar_logo_branca():
@@ -86,10 +58,6 @@ def carregar_logo_colorida():
             return base64.b64encode(f.read()).decode()
     except:
         return None
-
-# =============================================
-# MÓDULOS COM CACHE
-# =============================================
 
 @st.cache_resource
 def get_chamados():
@@ -111,10 +79,6 @@ def get_admin():
     from modules import admin
     return admin
 
-# =============================================
-# USUÁRIOS COM CACHE
-# =============================================
-
 @st.cache_data(ttl=300)
 def buscar_usuario(login, senha):
     rows = run_query(
@@ -122,10 +86,6 @@ def buscar_usuario(login, senha):
         (login, senha), fetch=True
     )
     return rows[0] if rows else None
-
-# =============================================
-# LOGIN
-# =============================================
 
 def tela_login():
     logo_b64 = carregar_logo_colorida()
@@ -161,10 +121,6 @@ def tela_login():
                 st.rerun()
             else:
                 st.error("Usuário ou senha incorretos.")
-
-# =============================================
-# SIDEBAR
-# =============================================
 
 def sidebar():
     logo_b64 = carregar_logo_branca()
@@ -225,22 +181,14 @@ def sidebar():
             </div>
         """, unsafe_allow_html=True)
 
-# =============================================
-# MAIN
-# =============================================
-
 def main():
     init_db()
-
     if not st.session_state.logado:
         tela_login()
         return
-
     if not st.session_state.pagina:
         st.session_state.pagina = "dashboard" if st.session_state.perfil == "contabilidade" else "novo_chamado"
-
     sidebar()
-
     p = st.session_state.pagina
     if p == "dashboard":        get_dashboard().tela_dashboard()
     elif p == "todos_chamados": get_chamados().tela_todos_chamados()
