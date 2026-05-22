@@ -80,19 +80,30 @@ def tela_novo_chamado():
     st.markdown(f"**Setor:** {st.session_state.setor}")
     st.markdown("Preencha todos os campos obrigatórios.")
     st.markdown("---")
+
     tipos = carregar_tipos()
+
+    # Campos condicionais FORA do form
     tipo_nota = st.selectbox("Tipo da Nota *", ["", "Compra", "Venda"], key="tipo_nota_select")
     if not tipo_nota:
         st.info("Selecione o tipo da nota para continuar.")
         return
+
     data_entrada = st.date_input("📥 Data da Nota *", value=None, key="data_entrada") if tipo_nota == "Compra" else None
     data_negociacao = st.date_input("🤝 Data de Negociação *", value=None, key="data_negociacao") if tipo_nota == "Venda" else None
+
+    tipo = st.selectbox("📋 Abertura de Período / Descontabilização *", [""] + tipos + ["Outros"], key="tipo_select")
+
+    tipo_outros_desc = ""
+    if tipo == "Outros":
+        tipo_outros_desc = st.text_area("📝 Descreva a solicitação *", placeholder="Descreva detalhadamente a solicitação...", key="outros_desc")
+
     st.markdown("---")
+
     with st.form("form_chamado", clear_on_submit=True):
         col1, col2 = st.columns(2)
         with col1:
             empresa = st.selectbox("🏢 Empresa *", ["", "1", "2", "6", "13", "14"])
-            tipo = st.selectbox("📋 Abertura de Período / Descontabilização *", [""] + tipos + ["Outros"])
             prioridade = st.selectbox("🚦 Prioridade *", ["Normal", "Urgente"])
             nf_retorna = st.selectbox("🔄 NF retornará ao sistema? *", ["", "Sim", "Não"])
         with col2:
@@ -101,7 +112,6 @@ def tela_novo_chamado():
             numero_nota = st.text_input("📄 Número da Nota *")
             valor = st.text_input("💰 Valor *", placeholder="0,00")
             arquivo = st.file_uploader("📎 Anexo (opcional)", type=["pdf","png","jpg","xlsx","xml"])
-        tipo_outros_desc = st.text_area("📝 Descreva a solicitação *", placeholder="Descreva detalhadamente...") if tipo == "Outros" else ""
         observacao = st.text_area("📝 Observação Complementar", placeholder="Informações adicionais...")
         enviar = st.form_submit_button("📨 Enviar Chamado", use_container_width=True)
 
@@ -120,24 +130,29 @@ def tela_novo_chamado():
         if erros:
             st.error(f"⚠️ Preencha: {', '.join(erros)}")
             return
+
         bloqueado, msg = verificar_bloqueio(data_entrada if tipo_nota == "Compra" else data_negociacao)
         if bloqueado:
             st.error(msg)
             return
+
         arquivo_nome = None
         if arquivo:
             os.makedirs("uploads", exist_ok=True)
             arquivo_nome = f"{datetime.now(BRASILIA).strftime('%Y%m%d%H%M%S')}_{arquivo.name}"
             with open(f"uploads/{arquivo_nome}", "wb") as f:
                 f.write(arquivo.getbuffer())
+
         try:
             valor_float = converter_valor(valor)
         except:
             st.error("⚠️ Valor inválido. Exemplos: 1500 / 1500,00 / 1.500,00")
             return
+
         tipo_final = f"Outros: {tipo_outros_desc.strip()}" if tipo == "Outros" else tipo
         total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
         protocolo = f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-{str(total+1).zfill(4)}"
+
         run_query("""INSERT INTO chamados (protocolo,setor,empresa,tipo_inconsistencia,prioridade,nf_retorna,
             solicitante,nome_parceiro,numero_nota,tipo_nota,data_entrada,data_saida,data_negociacao,
             valor,observacao,arquivo_nome,status,aberto_em) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
@@ -146,6 +161,7 @@ def tela_novo_chamado():
              data_entrada or None, None, data_negociacao or None,
              valor_float, observacao.strip(), arquivo_nome, "Aberto",
              datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S")))
+
         st.cache_data.clear()
         st.success(f"✅ Chamado registrado! Protocolo: **{protocolo}**")
         st.balloons()
