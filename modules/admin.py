@@ -75,13 +75,17 @@ def tela_admin():
                 if st.session_state.get(f"confirmar_exclusao_{tid}"):
                     st.warning(f"⚠️ Tem certeza que deseja excluir **{nome}**? Esta ação não pode ser desfeita.")
                     cc1, cc2 = st.columns(2)
-                    with cc1:
+                        with cc1:
                         if st.button("✅ Confirmar exclusão", key=f"conf_{tid}"):
-                            run_query("DELETE FROM tipos_inconsistencia WHERE id=%s", (tid,))
-                            st.session_state.pop(f"confirmar_exclusao_{tid}", None)
-                            st.cache_data.clear()
-                            st.success("✅ Excluído!")
-                            st.rerun()
+                            try:
+                                run_query("DELETE FROM tipos_inconsistencia WHERE id=%s", (tid,))
+                                st.session_state.pop(f"confirmar_exclusao_{tid}", None)
+                                st.cache_data.clear()
+                                st.cache_resource.clear()
+                                st.success("✅ Excluído!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"⚠️ Não foi possível excluir. Este tipo pode estar em uso em chamados existentes.")
                     with cc2:
                         if st.button("❌ Cancelar", key=f"canc_{tid}"):
                             st.session_state.pop(f"confirmar_exclusao_{tid}", None)
