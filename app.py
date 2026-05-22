@@ -71,7 +71,7 @@ def get_admin():
     from modules import admin
     return admin
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def buscar_usuario(login, senha):
     rows = run_query("SELECT nome, perfil FROM usuarios WHERE login=%s AND senha=%s AND ativo=1", (login, senha), fetch=True)
     return rows[0] if rows else None
