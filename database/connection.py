@@ -1,23 +1,14 @@
 import psycopg2
-import psycopg2.pool
 import streamlit as st
 
-@st.cache_resource
-def get_pool():
-    return psycopg2.pool.SimpleConnectionPool(
-        minconn=1, maxconn=10,
+def get_conn():
+    return psycopg2.connect(
         host=st.secrets["DB_HOST"],
         dbname=st.secrets["DB_NAME"],
         user=st.secrets["DB_USER"],
         password=st.secrets["DB_PASSWORD"],
         port=st.secrets["DB_PORT"]
     )
-
-def get_conn():
-    return get_pool().getconn()
-
-def release_conn(conn):
-    get_pool().putconn(conn)
 
 def run_query(sql, params=None, fetch=False):
     conn = get_conn()
@@ -29,7 +20,7 @@ def run_query(sql, params=None, fetch=False):
         conn.commit()
     finally:
         cur.close()
-        release_conn(conn)
+        conn.close()
 
 def init_db():
     conn = get_conn()
@@ -71,6 +62,7 @@ def init_db():
                 valor REAL NOT NULL,
                 observacao TEXT,
                 arquivo_nome TEXT,
+                solicitante TEXT,
                 status TEXT NOT NULL DEFAULT 'Aberto',
                 aberto_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 atendido_em TIMESTAMP,
@@ -101,6 +93,16 @@ def init_db():
                 periodo_fim DATE,
                 observacao TEXT,
                 criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS mensagens (
+                id SERIAL PRIMARY KEY,
+                chamado_protocolo TEXT NOT NULL REFERENCES chamados(protocolo) ON DELETE CASCADE,
+                autor TEXT NOT NULL,
+                perfil TEXT NOT NULL,
+                mensagem TEXT NOT NULL,
+                enviado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
@@ -153,4 +155,4 @@ def init_db():
         conn.rollback()
     finally:
         cur.close()
-        release_conn(conn)
+        conn.close()
