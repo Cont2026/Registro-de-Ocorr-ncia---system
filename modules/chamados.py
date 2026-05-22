@@ -20,6 +20,14 @@ def verificar_bloqueio(data_nota):
         return True, "⛔ O prazo para solicitações da competência selecionada foi encerrado conforme regra de fechamento contábil."
     return False, ""
 
+def converter_valor(valor):
+    v = valor.strip().replace(" ", "")
+    if "," in v and "." in v:
+        v = v.replace(".", "").replace(",", ".")
+    elif "," in v:
+        v = v.replace(",", ".")
+    return float(v)
+
 @st.cache_data(ttl=300)
 def carregar_tipos():
     return [r[0] for r in run_query("SELECT nome FROM tipos_inconsistencia WHERE ativo=1 ORDER BY nome", fetch=True)]
@@ -56,7 +64,6 @@ def enviar_mensagem(protocolo, autor, perfil, mensagem):
 def exibir_chat(protocolo):
     st.markdown("#### 💬 Acompanhamento")
     mensagens = carregar_mensagens(protocolo)
-
     if not mensagens:
         st.markdown("""
         <div style='background:#f9f9f9;border-radius:10px;padding:16px;
@@ -156,16 +163,10 @@ def tela_novo_chamado():
             with open(f"uploads/{arquivo_nome}", "wb") as f:
                 f.write(arquivo.getbuffer())
 
-       try:
-            valor_limpo = valor.strip().replace(" ", "")
-            # Suporta tanto 1.500,00 quanto 1500.00 quanto 1500,00
-            if "," in valor_limpo and "." in valor_limpo:
-                valor_limpo = valor_limpo.replace(".", "").replace(",", ".")
-            elif "," in valor_limpo:
-                valor_limpo = valor_limpo.replace(",", ".")
-            valor_float = float(valor_limpo)
+        try:
+            valor_float = converter_valor(valor)
         except:
-            st.error("⚠️ Valor inválido. Exemplos válidos: 1500 / 1500,00 / 1.500,00")
+            st.error("⚠️ Valor inválido. Exemplos: 1500 / 1500,00 / 1.500,00")
             return
 
         total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
