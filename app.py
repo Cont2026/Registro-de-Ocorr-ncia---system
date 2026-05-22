@@ -113,12 +113,24 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# =============================================
+# SESSÃO
+# =============================================
+
 if "logado" not in st.session_state:
     st.session_state.logado = False
     st.session_state.usuario = None
     st.session_state.perfil = None
     st.session_state.setor = None
 
+if "pagina" not in st.session_state:
+    st.session_state.pagina = None
+
+# =============================================
+# LOGO
+# =============================================
+
+@st.cache_resource
 def carregar_logo_branca():
     try:
         with open("assets/LOGO-GRUPO-LLE-BRANCO.png", "rb") as f:
@@ -126,12 +138,41 @@ def carregar_logo_branca():
     except:
         return None
 
+@st.cache_resource
 def carregar_logo_colorida():
     try:
         with open("assets/LOGO-GRUPO-LLE-COR-OFICIAL-PRINCIPAL.png", "rb") as f:
             return base64.b64encode(f.read()).decode()
     except:
         return None
+
+# =============================================
+# MÓDULOS COM CACHE
+# =============================================
+
+@st.cache_resource
+def get_modulo_chamados():
+    from modules import chamados
+    return chamados
+
+@st.cache_resource
+def get_modulo_dashboard():
+    from modules import dashboard
+    return dashboard
+
+@st.cache_resource
+def get_modulo_calendario():
+    from modules import calendario
+    return calendario
+
+@st.cache_resource
+def get_modulo_admin():
+    from modules import admin
+    return admin
+
+# =============================================
+# LOGIN
+# =============================================
 
 def tela_login():
     logo_b64 = carregar_logo_colorida()
@@ -166,15 +207,20 @@ def tela_login():
             )
             row = cur.fetchone()
             cur.close()
-            conn.close()
+            release_conn(conn)
             if row:
                 st.session_state.logado = True
                 st.session_state.usuario = row[0]
                 st.session_state.perfil = row[1]
                 st.session_state.setor = row[0]
+                st.session_state.pagina = "dashboard" if row[1] == "contabilidade" else "novo_chamado"
                 st.rerun()
             else:
                 st.error("Usuário ou senha incorretos.")
+
+# =============================================
+# SIDEBAR
+# =============================================
 
 def sidebar():
     logo_b64 = carregar_logo_branca()
@@ -186,17 +232,6 @@ def sidebar():
                 border-bottom:1px solid rgba(255,255,255,0.15);'>
                     <img src='data:image/png;base64,{logo_b64}'
                     style='width:80%; max-width:170px; display:block; margin:0 0 16px;'/>
-                    <p style='font-family:Montserrat,sans-serif; font-weight:800;
-                    font-size:2rem; letter-spacing:5px; color:#FAC318; margin:0;'>ROC</p>
-                    <p style='font-family:Montserrat,sans-serif; font-weight:300;
-                    font-size:0.72rem; color:rgba(255,255,255,0.55); margin:4px 0 0;'>
-                    Registro de Ocorrências Contábeis</p>
-                </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown("""
-                <div style='padding:8px 0 16px;
-                border-bottom:1px solid rgba(255,255,255,0.15); margin-bottom:16px;'>
                     <p style='font-family:Montserrat,sans-serif; font-weight:800;
                     font-size:2rem; letter-spacing:5px; color:#FAC318; margin:0;'>ROC</p>
                     <p style='font-family:Montserrat,sans-serif; font-weight:300;
@@ -231,6 +266,8 @@ def sidebar():
             }
 
         for label, key in paginas.items():
+            ativo = st.session_state.pagina == key
+            estilo = "background-color: rgba(250,195,24,0.15) !important; border-color: #FAC318 !important;" if ativo else ""
             if st.button(label, use_container_width=True, key=f"nav_{key}"):
                 st.session_state.pagina = key
                 st.rerun()
@@ -249,44 +286,36 @@ def sidebar():
             </div>
         """, unsafe_allow_html=True)
 
-from modules.chamados import tela_novo_chamado, tela_meus_chamados, tela_todos_chamados
-
-def pagina_dashboard():
-    from modules.dashboard import tela_dashboard
-    tela_dashboard()
-
-def pagina_calendario():
-    from modules.calendario import tela_calendario
-    tela_calendario()
-
-def pagina_admin():
-    from modules.admin import tela_admin
-    tela_admin()
+# =============================================
+# ROTEADOR
+# =============================================
 
 def main():
     init_db()
+
     if not st.session_state.logado:
         tela_login()
         return
-    if "pagina" not in st.session_state:
-        if st.session_state.perfil == "contabilidade":
-            st.session_state.pagina = "dashboard"
-        else:
-            st.session_state.pagina = "novo_chamado"
+
+    if not st.session_state.pagina:
+        st.session_state.pagina = "dashboard" if st.session_state.perfil == "contabilidade" else "novo_chamado"
+
     sidebar()
+
     pagina = st.session_state.pagina
+
     if pagina == "dashboard":
-        pagina_dashboard()
+        get_modulo_dashboard().tela_dashboard()
     elif pagina == "todos_chamados":
-        tela_todos_chamados()
+        get_modulo_chamados().tela_todos_chamados()
     elif pagina == "meus_chamados":
-        tela_meus_chamados()
+        get_modulo_chamados().tela_meus_chamados()
     elif pagina == "novo_chamado":
-        tela_novo_chamado()
+        get_modulo_chamados().tela_novo_chamado()
     elif pagina == "calendario":
-        pagina_calendario()
+        get_modulo_calendario().tela_calendario()
     elif pagina == "admin":
-        pagina_admin()
+        get_modulo_admin().tela_admin()
 
 if __name__ == "__main__":
     main()
