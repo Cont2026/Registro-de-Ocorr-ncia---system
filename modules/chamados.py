@@ -216,4 +216,47 @@ def tela_meus_chamados():
             exibir_chat(protocolo)
 
 def tela_todos_chamados():
-    st.title("📋
+    st.title("📋 Todos os Chamados")
+    st.markdown("---")
+    rows = carregar_todos_chamados()
+    if not rows:
+        st.info("Nenhum chamado registrado ainda.")
+        return
+
+    c1, c2, c3 = st.columns(3)
+    filtro_status = c1.selectbox("Status", ["Todos","Aberto","Em andamento","Resolvido","Cancelado"])
+    filtro_empresa = c2.selectbox("Empresa", ["Todas","1","2","6","13","14"])
+    filtro_setor = c3.text_input("Setor")
+
+    status_cor = {"Aberto":"🔴","Em andamento":"🟡","Resolvido":"🟢","Cancelado":"⚫"}
+
+    for protocolo, setor, tipo, empresa, status, prioridade, parceiro, nf, aberto_em, solicitante in rows:
+        if filtro_status != "Todos" and status != filtro_status: continue
+        if filtro_empresa != "Todas" and empresa != filtro_empresa: continue
+        if filtro_setor and filtro_setor.lower() not in setor.lower(): continue
+
+        with st.expander(f"{status_cor.get(status,'⚪')} {protocolo} — {parceiro} | NF: {nf} | {setor} | {status}"):
+            c1, c2, c3, c4 = st.columns(4)
+            c1.markdown(f"**Empresa:** {empresa}")
+            c2.markdown(f"**Tipo:** {tipo}")
+            c3.markdown(f"**Prioridade:** {prioridade}")
+            c4.markdown(f"**Solicitante:** {solicitante or '—'}")
+            st.markdown(f"**Aberto em:** {aberto_em}")
+            st.markdown("---")
+            novo_status = st.selectbox("Atualizar status",
+                ["Aberto","Em andamento","Resolvido","Cancelado"],
+                index=["Aberto","Em andamento","Resolvido","Cancelado"].index(status),
+                key=f"s_{protocolo}")
+            if st.button("💾 Salvar status", key=f"b_{protocolo}"):
+                agora = datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S")
+                run_query("""
+                    UPDATE chamados SET status=%s,
+                    atendido_em=COALESCE(atendido_em,%s),
+                    resolvido_em=CASE WHEN %s='Resolvido' THEN %s ELSE resolvido_em END
+                    WHERE protocolo=%s
+                """, (novo_status, agora, novo_status, agora, protocolo))
+                st.cache_data.clear()
+                st.success("✅ Atualizado!")
+                st.rerun()
+            st.markdown("---")
+            exibir_chat(protocolo)
