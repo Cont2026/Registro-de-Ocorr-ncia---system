@@ -115,7 +115,7 @@ def tela_login():
                 st.error("Usuário ou senha incorretos.")
 
 def sidebar():
-    logo_b64 = carregar_logo_branca()
+   logo_b64 = carregar_logo_colorida()
     with st.sidebar:
         if logo_b64:
             st.markdown(f"""
