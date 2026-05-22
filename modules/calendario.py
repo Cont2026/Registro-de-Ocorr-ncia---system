@@ -1,5 +1,5 @@
 import streamlit as st
-from database.connection import get_conn, release_conn, run_query
+from database.connection import run_query
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -31,10 +31,11 @@ def status(d):
     if data == hoje: return "🟡","Hoje","#f59e0b"
     return "🔵",f"Em {(data-hoje).days} dias","#3B82F6"
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300)
 def buscar_competencias():
     return run_query("SELECT id, mes_ano, ano, mes FROM competencias ORDER BY ano, mes", fetch=True)
 
+@st.cache_data(ttl=300)
 def buscar_fechamentos(cid):
     return run_query("""
         SELECT id, tipo, data_fechamento, hora_fechamento, periodo_inicio, periodo_fim, observacao
@@ -46,6 +47,19 @@ def buscar_fechamentos(cid):
             WHEN 'Fechamento Consolidado Corporativo' THEN 4
         END
     """, (cid,), fetch=True)
+
+@st.cache_data(ttl=300)
+def buscar_todos_fechamentos():
+    return run_query("""
+        SELECT competencia_id, id, tipo, data_fechamento, hora_fechamento, periodo_inicio, periodo_fim, observacao
+        FROM fechamentos
+        ORDER BY competencia_id, CASE tipo
+            WHEN 'Fechamento Parcial 1' THEN 1
+            WHEN 'Fechamento Parcial 2' THEN 2
+            WHEN 'Fechamento Parcial 3' THEN 3
+            WHEN 'Fechamento Consolidado Corporativo' THEN 4
+        END
+    """, fetch=True)
 
 def card_grande(tipo, f):
     cor = CORES[tipo]
@@ -88,22 +102,23 @@ def card_pequeno(tipo, f):
         <p style='font-size:10px;color:#666;margin:2px 0 0;'>📅 {per}</p>
     </div>"""
 
-def exibir_mes(comp, grande=True):
+def exibir_mes(comp, todos_fechamentos, grande=True):
     cid, mes_ano, ano, mes = comp
-    fd = {f[1]:f for f in buscar_fechamentos(cid)}
+    fd = {f[2]:f[1:] for f in todos_fechamentos if f[0]==cid}
     st.markdown(f"### 📆 {mes_ano}" if grande else f"##### 📅 {mes_ano}")
     cols = st.columns(4)
     for i, tipo in enumerate(TIPOS):
         with cols[i]:
-            html = card_grande(tipo, fd.get(tipo)) if grande else card_pequeno(tipo, fd.get(tipo))
+            f = fd.get(tipo)
+            html = card_grande(tipo, f) if grande else card_pequeno(tipo, f)
             st.markdown(html, unsafe_allow_html=True)
 
-def exibir_anual(competencias):
+def exibir_anual(competencias, todos_fechamentos):
     st.markdown("#### 🗓️ Visão Anual — 2026")
     st.markdown("---")
     for comp in competencias:
         cid, mes_ano, ano, mes = comp
-        fd = {f[1]:f for f in buscar_fechamentos(cid)}
+        fd = {f[2]:f[1:] for f in todos_fechamentos if f[0]==cid}
         cols = st.columns([1.2,1,1,1,1])
         with cols[0]:
             st.markdown(f"**📆 {mes_ano}**")
@@ -142,17 +157,20 @@ def tela_calendario():
         st.info("Nenhuma competência cadastrada ainda.")
         return
 
+    # Uma única consulta para todos os fechamentos
+    todos_fechamentos = buscar_todos_fechamentos()
+
     hoje = datetime.now(BRASILIA)
     comp_atual = next((c for c in competencias if c[2]==hoje.year and c[3]==hoje.month), competencias[0])
     idx = competencias.index(comp_atual)
     comp_prox = competencias[idx+1] if idx+1 < len(competencias) else None
 
-    exibir_mes(comp_atual, grande=True)
+    exibir_mes(comp_atual, todos_fechamentos, grande=True)
     if comp_prox:
         st.markdown("---")
-        exibir_mes(comp_prox, grande=False)
+        exibir_mes(comp_prox, todos_fechamentos, grande=False)
     st.markdown("---")
-    exibir_anual(competencias)
+    exibir_anual(competencias, todos_fechamentos)
 
     if st.session_state.perfil == "contabilidade":
         st.markdown("---")
@@ -160,7 +178,7 @@ def tela_calendario():
         opcoes = {c[1]: c[0] for c in competencias}
         sel = st.selectbox("Selecione o mês", list(opcoes.keys()))
         cid = opcoes[sel]
-        fd = {f[1]:f for f in buscar_fechamentos(cid)}
+        fd = {f[2]:f[1:] for f in todos_fechamentos if f[0]==cid}
 
         for tipo in TIPOS:
             cor = CORES[tipo]
@@ -171,7 +189,7 @@ def tela_calendario():
             nd = c1.date_input("Data", value=f[2] if f and f[2] else None, key=f"d_{tipo}_{cid}")
             nh = c2.text_input("Horário", value=f[3] if f and f[3] else "", key=f"h_{tipo}_{cid}", placeholder="ex: 12:00")
             ni = c3.date_input("Período início", value=f[4] if f and f[4] else None, key=f"i_{tipo}_{cid}")
-            nf = c4.date_input("Período fim", value=f[5] if f and f[5] else None, key=f"f_{tipo}_{cid}")
+            nf_val = c4.date_input("Período fim", value=f[5] if f and f[5] else None, key=f"f_{tipo}_{cid}")
             no = st.text_input("Observação", value=f[6] if f and f[6] else "", key=f"o_{tipo}_{cid}")
 
             if st.button(f"💾 Salvar {tipo}", key=f"btn_{tipo}_{cid}"):
@@ -179,12 +197,12 @@ def tela_calendario():
                     run_query("""
                         UPDATE fechamentos SET data_fechamento=%s,hora_fechamento=%s,
                         periodo_inicio=%s,periodo_fim=%s,observacao=%s WHERE id=%s
-                    """, (nd or None, nh.strip() or None, ni or None, nf or None, no.strip() or None, fid))
+                    """, (nd or None, nh.strip() or None, ni or None, nf_val or None, no.strip() or None, fid))
                 else:
                     run_query("""
                         INSERT INTO fechamentos (competencia_id,tipo,data_fechamento,hora_fechamento,periodo_inicio,periodo_fim,observacao)
                         VALUES (%s,%s,%s,%s,%s,%s,%s)
-                    """, (cid, tipo, nd or None, nh.strip() or None, ni or None, nf or None, no.strip() or None))
+                    """, (cid, tipo, nd or None, nh.strip() or None, ni or None, nf_val or None, no.strip() or None))
                 st.cache_data.clear()
                 st.success(f"✅ {tipo} atualizado!")
                 st.rerun()
