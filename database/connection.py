@@ -1,14 +1,26 @@
 import psycopg2
+import psycopg2.pool
 import streamlit as st
 
-def get_conn():
-    return psycopg2.connect(
+@st.cache_resource
+def get_pool():
+    return psycopg2.pool.SimpleConnectionPool(
+        minconn=1,
+        maxconn=10,
         host=st.secrets["DB_HOST"],
         dbname=st.secrets["DB_NAME"],
         user=st.secrets["DB_USER"],
         password=st.secrets["DB_PASSWORD"],
         port=st.secrets["DB_PORT"]
     )
+
+def get_conn():
+    pool = get_pool()
+    return pool.getconn()
+
+def release_conn(conn):
+    pool = get_pool()
+    pool.putconn(conn)
 
 def init_db():
     conn = get_conn()
@@ -90,7 +102,6 @@ def init_db():
             )
         """)
 
-        # Usuários
         usuarios = [
             ('Contabilidade', 'contabilidade', 'roc2024', 'contabilidade'),
             ('Adm Logistica King', 'adm.logistica.king', 'setor123', 'setor'),
@@ -121,7 +132,6 @@ def init_db():
         for t in tipos:
             cur.execute("INSERT INTO tipos_inconsistencia (nome) VALUES (%s) ON CONFLICT (nome) DO NOTHING", (t,))
 
-        # Popular calendário 2026 com dados da planilha
         calendario_2026 = {
             ("Janeiro/2026", 1, 2026): [
                 ("Fechamento Parcial 1", "2026-01-16", "12:00", "2026-01-01", "2026-01-14"),
@@ -148,77 +158,4 @@ def init_db():
                 ("Fechamento Consolidado Corporativo", "2026-05-04", "10:00", "2026-04-28", "2026-04-30"),
             ],
             ("Maio/2026", 5, 2026): [
-                ("Fechamento Parcial 1", "2026-05-14", "12:00", "2026-05-01", "2026-05-12"),
-                ("Fechamento Parcial 2", "2026-05-22", "10:00", "2026-05-13", "2026-05-20"),
-                ("Fechamento Parcial 3", "2026-05-28", "10:00", "2026-05-21", "2026-05-26"),
-                ("Fechamento Consolidado Corporativo", "2026-06-01", "10:00", "2026-05-27", "2026-05-31"),
-            ],
-            ("Junho/2026", 6, 2026): [
-                ("Fechamento Parcial 1", "2026-06-15", "12:00", "2026-06-01", "2026-06-11"),
-                ("Fechamento Parcial 2", "2026-06-23", "10:00", "2026-06-12", "2026-06-21"),
-                ("Fechamento Parcial 3", "2026-06-29", "10:00", "2026-06-22", "2026-06-25"),
-                ("Fechamento Consolidado Corporativo", "2026-07-01", "10:00", "2026-06-26", "2026-06-30"),
-            ],
-            ("Julho/2026", 7, 2026): [
-                ("Fechamento Parcial 1", "2026-07-16", "12:00", "2026-07-01", "2026-07-14"),
-                ("Fechamento Parcial 2", "2026-07-24", "10:00", "2026-07-15", "2026-07-22"),
-                ("Fechamento Parcial 3", "2026-07-30", "10:00", "2026-07-23", "2026-07-28"),
-                ("Fechamento Consolidado Corporativo", "2026-08-03", "10:00", "2026-07-29", "2026-07-31"),
-            ],
-            ("Agosto/2026", 8, 2026): [
-                ("Fechamento Parcial 1", "2026-08-13", "12:00", "2026-08-01", "2026-08-11"),
-                ("Fechamento Parcial 2", "2026-08-21", "10:00", "2026-08-12", "2026-08-19"),
-                ("Fechamento Parcial 3", "2026-08-28", "10:00", "2026-08-20", "2026-08-26"),
-                ("Fechamento Consolidado Corporativo", "2026-09-01", "10:00", "2026-08-27", "2026-08-31"),
-            ],
-            ("Setembro/2026", 9, 2026): [
-                ("Fechamento Parcial 1", "2026-09-15", "12:00", "2026-09-01", "2026-09-13"),
-                ("Fechamento Parcial 2", "2026-09-23", "10:00", "2026-09-14", "2026-09-21"),
-                ("Fechamento Parcial 3", "2026-09-29", "10:00", "2026-09-22", "2026-09-25"),
-                ("Fechamento Consolidado Corporativo", "2026-10-01", "10:00", "2026-09-26", "2026-09-30"),
-            ],
-            ("Outubro/2026", 10, 2026): [
-                ("Fechamento Parcial 1", "2026-10-16", "12:00", "2026-10-01", "2026-10-12"),
-                ("Fechamento Parcial 2", "2026-10-22", "10:00", "2026-10-13", "2026-10-20"),
-                ("Fechamento Parcial 3", "2026-10-29", "10:00", "2026-10-21", "2026-10-27"),
-                ("Fechamento Consolidado Corporativo", "2026-11-03", "10:00", "2026-10-28", "2026-10-31"),
-            ],
-            ("Novembro/2026", 11, 2026): [
-                ("Fechamento Parcial 1", "2026-11-16", "12:00", "2026-11-01", "2026-11-13"),
-                ("Fechamento Parcial 2", "2026-11-24", "10:00", "2026-11-14", "2026-11-19"),
-                ("Fechamento Parcial 3", "2026-11-27", "10:00", "2026-11-20", "2026-11-25"),
-                ("Fechamento Consolidado Corporativo", "2026-12-01", "10:00", "2026-11-26", "2026-11-30"),
-            ],
-            ("Dezembro/2026", 12, 2026): [
-                ("Fechamento Parcial 1", "2026-12-15", "12:00", "2026-12-01", "2026-12-13"),
-                ("Fechamento Parcial 2", "2026-12-23", "10:00", "2026-12-14", "2026-12-21"),
-                ("Fechamento Parcial 3", "2026-12-30", "10:00", "2026-12-22", "2026-12-28"),
-                ("Fechamento Consolidado Corporativo", "2027-01-04", "10:00", "2026-12-29", "2026-12-31"),
-            ],
-        }
-
-        for (mes_ano, mes, ano), fechs in calendario_2026.items():
-            # Verifica se já existe
-            cur.execute("SELECT id FROM competencias WHERE mes_ano=%s", (mes_ano,))
-            existing = cur.fetchone()
-            if not existing:
-                cur.execute("""
-                    INSERT INTO competencias (mes_ano, ano, mes)
-                    VALUES (%s, %s, %s) RETURNING id
-                """, (mes_ano, ano, mes))
-                comp_id = cur.fetchone()[0]
-
-                for tipo, data_f, hora_f, per_ini, per_fim in fechs:
-                    cur.execute("""
-                        INSERT INTO fechamentos
-                        (competencia_id, tipo, data_fechamento, hora_fechamento, periodo_inicio, periodo_fim)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                    """, (comp_id, tipo, data_f, hora_f, per_ini, per_fim))
-
-        conn.commit()
-
-    except Exception as e:
-        conn.rollback()
-    finally:
-        cur.close()
-        conn.close()
+                ("Fechamento Parcial 1", "2026-05-14", "12:00", "2026-
