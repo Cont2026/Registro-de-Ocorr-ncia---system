@@ -108,6 +108,8 @@ def tela_novo_chamado():
     st.markdown("---")
 
     tipos = carregar_tipos()
+    tipos_com_outros = tipos + ["Outros"]
+
     tipo_nota = st.selectbox("Tipo da Nota *", ["", "Compra", "Venda"], key="tipo_nota_select")
 
     if not tipo_nota:
@@ -123,7 +125,7 @@ def tela_novo_chamado():
         col1, col2 = st.columns(2)
         with col1:
             empresa = st.selectbox("🏢 Empresa *", ["", "1", "2", "6", "13", "14"])
-            tipo = st.selectbox("📋 Abertura de Período / Descontabilização *", [""] + tipos)
+            tipo = st.selectbox("📋 Abertura de Período / Descontabilização *", [""] + tipos_com_outros)
             prioridade = st.selectbox("🚦 Prioridade *", ["Normal", "Urgente"])
             nf_retorna = st.selectbox("🔄 NF retornará ao sistema? *", ["", "Sim", "Não"])
         with col2:
@@ -132,6 +134,11 @@ def tela_novo_chamado():
             numero_nota = st.text_input("📄 Número da Nota *")
             valor = st.text_input("💰 Valor *", placeholder="0,00")
             arquivo = st.file_uploader("📎 Anexo (opcional)", type=["pdf","png","jpg","xlsx","xml"])
+
+        tipo_outros_desc = ""
+        if tipo == "Outros":
+            tipo_outros_desc = st.text_area("📝 Descreva a solicitação *", placeholder="Descreva detalhadamente a solicitação...")
+
         observacao = st.text_area("📝 Observação Complementar", placeholder="Informações adicionais...")
         st.markdown("---")
         enviar = st.form_submit_button("📨 Enviar Chamado", use_container_width=True)
@@ -140,6 +147,7 @@ def tela_novo_chamado():
         erros = []
         if not empresa: erros.append("Empresa")
         if not tipo: erros.append("Abertura de Período / Descontabilização")
+        if tipo == "Outros" and not tipo_outros_desc.strip(): erros.append("Descrição da solicitação")
         if not nf_retorna: erros.append("NF retornará ao sistema")
         if not solicitante.strip(): erros.append("Nome do Solicitante")
         if not nome_parceiro.strip(): erros.append("Nome do Parceiro")
@@ -169,6 +177,7 @@ def tela_novo_chamado():
             st.error("⚠️ Valor inválido. Exemplos: 1500 / 1500,00 / 1.500,00")
             return
 
+        tipo_final = f"Outros: {tipo_outros_desc.strip()}" if tipo == "Outros" else tipo
         total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
         protocolo = f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-{str(total + 1).zfill(4)}"
 
@@ -177,7 +186,7 @@ def tela_novo_chamado():
             solicitante,nome_parceiro,numero_nota,tipo_nota,data_entrada,data_saida,data_negociacao,
             valor,observacao,arquivo_nome,status,aberto_em)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        """, (protocolo, st.session_state.setor, empresa, tipo, prioridade, nf_retorna,
+        """, (protocolo, st.session_state.setor, empresa, tipo_final, prioridade, nf_retorna,
               solicitante.strip(), nome_parceiro.strip(), numero_nota.strip(), tipo_nota,
               data_entrada or None, None, data_negociacao or None,
               valor_float, observacao.strip(), arquivo_nome, "Aberto",
@@ -207,47 +216,4 @@ def tela_meus_chamados():
             exibir_chat(protocolo)
 
 def tela_todos_chamados():
-    st.title("📋 Todos os Chamados")
-    st.markdown("---")
-    rows = carregar_todos_chamados()
-    if not rows:
-        st.info("Nenhum chamado registrado ainda.")
-        return
-
-    c1, c2, c3 = st.columns(3)
-    filtro_status = c1.selectbox("Status", ["Todos","Aberto","Em andamento","Resolvido","Cancelado"])
-    filtro_empresa = c2.selectbox("Empresa", ["Todas","1","2","6","13","14"])
-    filtro_setor = c3.text_input("Setor")
-
-    status_cor = {"Aberto":"🔴","Em andamento":"🟡","Resolvido":"🟢","Cancelado":"⚫"}
-
-    for protocolo, setor, tipo, empresa, status, prioridade, parceiro, nf, aberto_em, solicitante in rows:
-        if filtro_status != "Todos" and status != filtro_status: continue
-        if filtro_empresa != "Todas" and empresa != filtro_empresa: continue
-        if filtro_setor and filtro_setor.lower() not in setor.lower(): continue
-
-        with st.expander(f"{status_cor.get(status,'⚪')} {protocolo} — {parceiro} | NF: {nf} | {setor} | {status}"):
-            c1, c2, c3, c4 = st.columns(4)
-            c1.markdown(f"**Empresa:** {empresa}")
-            c2.markdown(f"**Tipo:** {tipo}")
-            c3.markdown(f"**Prioridade:** {prioridade}")
-            c4.markdown(f"**Solicitante:** {solicitante or '—'}")
-            st.markdown(f"**Aberto em:** {aberto_em}")
-            st.markdown("---")
-            novo_status = st.selectbox("Atualizar status",
-                ["Aberto","Em andamento","Resolvido","Cancelado"],
-                index=["Aberto","Em andamento","Resolvido","Cancelado"].index(status),
-                key=f"s_{protocolo}")
-            if st.button("💾 Salvar status", key=f"b_{protocolo}"):
-                agora = datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S")
-                run_query("""
-                    UPDATE chamados SET status=%s,
-                    atendido_em=COALESCE(atendido_em,%s),
-                    resolvido_em=CASE WHEN %s='Resolvido' THEN %s ELSE resolvido_em END
-                    WHERE protocolo=%s
-                """, (novo_status, agora, novo_status, agora, protocolo))
-                st.cache_data.clear()
-                st.success("✅ Atualizado!")
-                st.rerun()
-            st.markdown("---")
-            exibir_chat(protocolo)
+    st.title("📋
