@@ -3,38 +3,35 @@ import os
 import calendar
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
-from database.connection import get_conn, release_conn, run_query
+from database.connection import run_query
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
 
 def verificar_bloqueio(data_nota):
-    if not data_nota:
-        return False, ""
+    if not data_nota: return False, ""
     agora = datetime.now(BRASILIA)
     hoje = agora.date()
     m, a = data_nota.month, data_nota.year
     ma, aa = hoje.month, hoje.year
-    if a == aa and m == ma:
-        return False, ""
+    if a == aa and m == ma: return False, ""
     if a < aa or (a == aa and m < ma - 1):
         return True, "⛔ O prazo para solicitações da competência selecionada foi encerrado conforme regra de fechamento contábil."
-    ultimo = calendar.monthrange(aa, ma)[1]
-    if agora > datetime(aa, ma, ultimo, 17, 48, 0, tzinfo=BRASILIA):
+    if agora > datetime(aa, ma, calendar.monthrange(aa, ma)[1], 17, 48, 0, tzinfo=BRASILIA):
         return True, "⛔ O prazo para solicitações da competência selecionada foi encerrado conforme regra de fechamento contábil."
     return False, ""
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=300)
 def carregar_tipos():
     return [r[0] for r in run_query("SELECT nome FROM tipos_inconsistencia WHERE ativo=1 ORDER BY nome", fetch=True)]
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=60)
 def carregar_meus_chamados(setor):
     return run_query("""
         SELECT protocolo, tipo_inconsistencia, empresa, status, prioridade, nome_parceiro, numero_nota, aberto_em
         FROM chamados WHERE setor=%s ORDER BY aberto_em DESC
     """, (setor,), fetch=True)
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=60)
 def carregar_todos_chamados():
     return run_query("""
         SELECT protocolo, setor, tipo_inconsistencia, empresa, status, prioridade, nome_parceiro, numero_nota, aberto_em
@@ -107,8 +104,7 @@ def tela_novo_chamado():
             st.error("⚠️ Valor inválido. Use o formato 1.500,00")
             return
 
-        rows = run_query("SELECT COUNT(*) FROM chamados", fetch=True)
-        total = rows[0][0]
+        total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
         protocolo = f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-{str(total + 1).zfill(4)}"
 
         run_query("""
