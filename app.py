@@ -44,18 +44,12 @@ def inicializar_banco():
     return True
 
 @st.cache_resource
-def carregar_logo_branca():
-    try:
-        with open("assets/LOGO-GRUPO-LLE-BRANCO.png", "rb") as f:
-            return base64.b64encode(f.read()).decode()
-    except: return None
-
-@st.cache_resource
 def carregar_logo_colorida():
     try:
         with open("assets/LOGO-GRUPO-LLE-COR-OFICIAL-PRINCIPAL.png", "rb") as f:
             return base64.b64encode(f.read()).decode()
-    except: return None
+    except:
+        return None
 
 @st.cache_resource
 def get_chamados():
@@ -115,7 +109,7 @@ def tela_login():
                 st.error("Usuário ou senha incorretos.")
 
 def sidebar():
-   logo_b64 = carregar_logo_colorida()
+    logo_b64 = carregar_logo_colorida()
     with st.sidebar:
         if logo_b64:
             st.markdown(f"""
@@ -132,14 +126,24 @@ def sidebar():
             </div>
         """, unsafe_allow_html=True)
         st.markdown("---")
-        paginas = {"📊 Dashboard":"dashboard","📋 Todos os Chamados":"todos_chamados","📅 Calendário":"calendario","⚙️ Administração":"admin"} if st.session_state.perfil == "contabilidade" else {"➕ Novo Chamado":"novo_chamado","📋 Meus Chamados":"meus_chamados","📅 Calendário":"calendario"}
+        paginas = {
+            "📊 Dashboard": "dashboard",
+            "📋 Todos os Chamados": "todos_chamados",
+            "📅 Calendário": "calendario",
+            "⚙️ Administração": "admin",
+        } if st.session_state.perfil == "contabilidade" else {
+            "➕ Novo Chamado": "novo_chamado",
+            "📋 Meus Chamados": "meus_chamados",
+            "📅 Calendário": "calendario",
+        }
         for label, key in paginas.items():
             if st.button(label, use_container_width=True, key=f"nav_{key}"):
                 st.session_state.pagina = key
                 st.rerun()
         st.markdown("---")
         if st.button("🚪 Sair", use_container_width=True):
-            for k in list(st.session_state.keys()): del st.session_state[k]
+            for k in list(st.session_state.keys()):
+                del st.session_state[k]
             st.rerun()
         st.markdown("""
             <div style='position:fixed;bottom:20px;left:0;width:260px;text-align:center;padding:0 16px;'>
