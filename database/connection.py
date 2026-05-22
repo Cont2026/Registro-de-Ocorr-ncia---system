@@ -26,85 +26,33 @@ def init_db():
     conn = get_conn()
     cur = conn.cursor()
     try:
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS usuarios (
-                id SERIAL PRIMARY KEY,
-                nome TEXT NOT NULL,
-                login TEXT NOT NULL UNIQUE,
-                senha TEXT NOT NULL,
-                perfil TEXT NOT NULL CHECK(perfil IN ('contabilidade','setor')),
-                ativo INTEGER DEFAULT 1,
-                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS tipos_inconsistencia (
-                id SERIAL PRIMARY KEY,
-                nome TEXT NOT NULL UNIQUE,
-                ativo INTEGER DEFAULT 1
-            )
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS chamados (
-                id SERIAL PRIMARY KEY,
-                protocolo TEXT NOT NULL UNIQUE,
-                setor TEXT NOT NULL,
-                empresa TEXT NOT NULL,
-                tipo_inconsistencia TEXT NOT NULL,
-                prioridade TEXT NOT NULL,
-                nf_retorna TEXT NOT NULL,
-                nome_parceiro TEXT NOT NULL,
-                numero_nota TEXT NOT NULL,
-                tipo_nota TEXT,
-                data_entrada DATE,
-                data_saida DATE,
-                data_negociacao DATE,
-                valor REAL NOT NULL,
-                observacao TEXT,
-                arquivo_nome TEXT,
-                solicitante TEXT,
-                status TEXT NOT NULL DEFAULT 'Aberto',
-                aberto_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                atendido_em TIMESTAMP,
-                resolvido_em TIMESTAMP,
-                resolucao TEXT
-            )
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS competencias (
-                id SERIAL PRIMARY KEY,
-                mes_ano TEXT NOT NULL,
-                ano INTEGER NOT NULL,
-                mes INTEGER NOT NULL,
-                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS fechamentos (
-                id SERIAL PRIMARY KEY,
-                competencia_id INTEGER NOT NULL REFERENCES competencias(id) ON DELETE CASCADE,
-                tipo TEXT NOT NULL CHECK(tipo IN (
-                    'Fechamento Parcial 1','Fechamento Parcial 2',
-                    'Fechamento Parcial 3','Fechamento Consolidado Corporativo'
-                )),
-                data_fechamento DATE,
-                hora_fechamento TEXT,
-                periodo_inicio DATE,
-                periodo_fim DATE,
-                observacao TEXT,
-                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS mensagens (
-                id SERIAL PRIMARY KEY,
-                chamado_protocolo TEXT NOT NULL REFERENCES chamados(protocolo) ON DELETE CASCADE,
-                autor TEXT NOT NULL,
-                perfil TEXT NOT NULL,
-                mensagem TEXT NOT NULL,
-                enviado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+        cur.execute("""CREATE TABLE IF NOT EXISTS usuarios (
+            id SERIAL PRIMARY KEY, nome TEXT NOT NULL, login TEXT NOT NULL UNIQUE,
+            senha TEXT NOT NULL, perfil TEXT NOT NULL CHECK(perfil IN ('contabilidade','setor')),
+            ativo INTEGER DEFAULT 1, criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS tipos_inconsistencia (
+            id SERIAL PRIMARY KEY, nome TEXT NOT NULL UNIQUE, ativo INTEGER DEFAULT 1)""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS chamados (
+            id SERIAL PRIMARY KEY, protocolo TEXT NOT NULL UNIQUE, setor TEXT NOT NULL,
+            empresa TEXT NOT NULL, tipo_inconsistencia TEXT NOT NULL, prioridade TEXT NOT NULL,
+            nf_retorna TEXT NOT NULL, nome_parceiro TEXT NOT NULL, numero_nota TEXT NOT NULL,
+            tipo_nota TEXT, data_entrada DATE, data_saida DATE, data_negociacao DATE,
+            valor REAL NOT NULL, observacao TEXT, arquivo_nome TEXT, solicitante TEXT,
+            status TEXT NOT NULL DEFAULT 'Aberto', aberto_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            atendido_em TIMESTAMP, resolvido_em TIMESTAMP, resolucao TEXT)""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS competencias (
+            id SERIAL PRIMARY KEY, mes_ano TEXT NOT NULL, ano INTEGER NOT NULL,
+            mes INTEGER NOT NULL, criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS fechamentos (
+            id SERIAL PRIMARY KEY, competencia_id INTEGER NOT NULL REFERENCES competencias(id) ON DELETE CASCADE,
+            tipo TEXT NOT NULL CHECK(tipo IN ('Fechamento Parcial 1','Fechamento Parcial 2',
+            'Fechamento Parcial 3','Fechamento Consolidado Corporativo')),
+            data_fechamento DATE, hora_fechamento TEXT, periodo_inicio DATE, periodo_fim DATE,
+            observacao TEXT, criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS mensagens (
+            id SERIAL PRIMARY KEY, chamado_protocolo TEXT NOT NULL REFERENCES chamados(protocolo) ON DELETE CASCADE,
+            autor TEXT NOT NULL, perfil TEXT NOT NULL, mensagem TEXT NOT NULL,
+            enviado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
 
         for u in [
             ('Contabilidade','contabilidade','roc2024','contabilidade'),
@@ -141,15 +89,13 @@ def init_db():
             ("Novembro/2026",11,2026):[("Fechamento Parcial 1","2026-11-16","12:00","2026-11-01","2026-11-13"),("Fechamento Parcial 2","2026-11-24","10:00","2026-11-14","2026-11-19"),("Fechamento Parcial 3","2026-11-27","10:00","2026-11-20","2026-11-25"),("Fechamento Consolidado Corporativo","2026-12-01","10:00","2026-11-26","2026-11-30")],
             ("Dezembro/2026",12,2026):[("Fechamento Parcial 1","2026-12-15","12:00","2026-12-01","2026-12-13"),("Fechamento Parcial 2","2026-12-23","10:00","2026-12-14","2026-12-21"),("Fechamento Parcial 3","2026-12-30","10:00","2026-12-22","2026-12-28"),("Fechamento Consolidado Corporativo","2027-01-04","10:00","2026-12-29","2026-12-31")],
         }
-
-        for (mes_ano, mes, ano), fechs in cal.items():
+        for (mes_ano,mes,ano), fechs in cal.items():
             cur.execute("SELECT id FROM competencias WHERE mes_ano=%s", (mes_ano,))
             if not cur.fetchone():
                 cur.execute("INSERT INTO competencias (mes_ano,ano,mes) VALUES (%s,%s,%s) RETURNING id", (mes_ano,ano,mes))
                 comp_id = cur.fetchone()[0]
-                for tipo, df, hf, pi, pf in fechs:
+                for tipo,df,hf,pi,pf in fechs:
                     cur.execute("INSERT INTO fechamentos (competencia_id,tipo,data_fechamento,hora_fechamento,periodo_inicio,periodo_fim) VALUES (%s,%s,%s,%s,%s,%s)", (comp_id,tipo,df,hf,pi,pf))
-
         conn.commit()
     except:
         conn.rollback()
