@@ -1,5 +1,5 @@
 import streamlit as st
-from database.connection import get_conn
+from database.connection import get_conn, release_conn
 
 def tela_admin():
     st.title("⚙️ Administração")
@@ -7,18 +7,14 @@ def tela_admin():
 
     aba = st.tabs(["👥 Usuários e Setores", "📋 Abertura de Período / Descontabilização"])
 
-    # =============================================
-    # ABA 1 — USUÁRIOS E SETORES
-    # =============================================
     with aba[0]:
         st.subheader("Usuários e Setores cadastrados")
-
         conn = get_conn()
         cur = conn.cursor()
         cur.execute("SELECT id, nome, login, perfil, ativo FROM usuarios ORDER BY perfil, nome")
         usuarios = cur.fetchall()
         cur.close()
-        conn.close()
+        release_conn(conn)
 
         for u in usuarios:
             uid, nome, login, perfil, ativo = u
@@ -39,11 +35,10 @@ def tela_admin():
                         cur.execute("UPDATE usuarios SET senha=%s, ativo=%s WHERE id=%s",
                                     (nova_senha.strip(), novo_ativo, uid))
                     else:
-                        cur.execute("UPDATE usuarios SET ativo=%s WHERE id=%s",
-                                    (novo_ativo, uid))
+                        cur.execute("UPDATE usuarios SET ativo=%s WHERE id=%s", (novo_ativo, uid))
                     conn.commit()
                     cur.close()
-                    conn.close()
+                    release_conn(conn)
                     st.success("✅ Usuário atualizado!")
                     st.rerun()
 
@@ -56,7 +51,7 @@ def tela_admin():
             with col2:
                 novo_login = st.text_input("Login *", placeholder="ex: fiscal")
             with col3:
-                nova_senha_setor = st.text_input("Senha *", placeholder="senha inicial")
+                nova_senha_setor = st.text_input("Senha *")
             salvar_setor = st.form_submit_button("➕ Adicionar Setor", use_container_width=True)
 
         if salvar_setor:
@@ -76,24 +71,20 @@ def tela_admin():
                     """, (novo_nome.strip(), novo_login.strip(), nova_senha_setor.strip()))
                     conn.commit()
                     cur.close()
-                    conn.close()
+                    release_conn(conn)
                     st.success(f"✅ Setor '{novo_nome}' adicionado!")
                     st.rerun()
                 except Exception:
-                    st.error("⚠️ Login já existe. Escolha outro login.")
+                    st.error("⚠️ Login já existe.")
 
-    # =============================================
-    # ABA 2 — TIPOS
-    # =============================================
     with aba[1]:
         st.subheader("Tipos cadastrados")
-
         conn = get_conn()
         cur = conn.cursor()
         cur.execute("SELECT id, nome, ativo FROM tipos_inconsistencia ORDER BY nome")
         tipos = cur.fetchall()
         cur.close()
-        conn.close()
+        release_conn(conn)
 
         for t in tipos:
             tid, nome, ativo = t
@@ -113,7 +104,7 @@ def tela_admin():
                                 (novo_nome_tipo.strip(), novo_ativo_tipo, tid))
                     conn.commit()
                     cur.close()
-                    conn.close()
+                    release_conn(conn)
                     st.success("✅ Tipo atualizado!")
                     st.rerun()
 
@@ -133,7 +124,7 @@ def tela_admin():
                     cur.execute("INSERT INTO tipos_inconsistencia (nome) VALUES (%s)", (novo_tipo.strip(),))
                     conn.commit()
                     cur.close()
-                    conn.close()
+                    release_conn(conn)
                     st.success(f"✅ Tipo '{novo_tipo}' adicionado!")
                     st.rerun()
                 except Exception:
