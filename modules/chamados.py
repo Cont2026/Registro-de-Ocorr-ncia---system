@@ -156,10 +156,16 @@ def tela_novo_chamado():
             with open(f"uploads/{arquivo_nome}", "wb") as f:
                 f.write(arquivo.getbuffer())
 
-        try:
-            valor_float = float(valor.replace(".", "").replace(",", "."))
+       try:
+            valor_limpo = valor.strip().replace(" ", "")
+            # Suporta tanto 1.500,00 quanto 1500.00 quanto 1500,00
+            if "," in valor_limpo and "." in valor_limpo:
+                valor_limpo = valor_limpo.replace(".", "").replace(",", ".")
+            elif "," in valor_limpo:
+                valor_limpo = valor_limpo.replace(",", ".")
+            valor_float = float(valor_limpo)
         except:
-            st.error("⚠️ Valor inválido. Use o formato 1.500,00")
+            st.error("⚠️ Valor inválido. Exemplos válidos: 1500 / 1500,00 / 1.500,00")
             return
 
         total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
