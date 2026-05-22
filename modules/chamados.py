@@ -238,15 +238,14 @@ def tela_todos_chamados():
                 ["Aberto","Em andamento","Resolvido","Cancelado"],
                 index=["Aberto","Em andamento","Resolvido","Cancelado"].index(status),
                 key=f"s_{protocolo}")
-            resolucao = st.text_area("Resolução", key=f"r_{protocolo}")
-            if st.button("💾 Salvar", key=f"b_{protocolo}"):
+            if st.button("💾 Salvar status", key=f"b_{protocolo}"):
                 agora = datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S")
                 run_query("""
-                    UPDATE chamados SET status=%s, resolucao=%s,
+                    UPDATE chamados SET status=%s,
                     atendido_em=COALESCE(atendido_em,%s),
                     resolvido_em=CASE WHEN %s='Resolvido' THEN %s ELSE resolvido_em END
                     WHERE protocolo=%s
-                """, (novo_status, resolucao, agora, novo_status, agora, protocolo))
+                """, (novo_status, agora, novo_status, agora, protocolo))
                 st.cache_data.clear()
                 st.success("✅ Atualizado!")
                 st.rerun()
