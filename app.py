@@ -114,7 +114,9 @@ def sidebar():
         if logo_b64:
             st.markdown(f"""
                 <div style='background:#041747;padding:24px 16px 20px;margin:-1rem -1rem 20px -1rem;border-bottom:1px solid rgba(255,255,255,0.15);'>
-                    <img src='data:image/png;base64,{logo_b64}' style='width:80%;max-width:170px;display:block;margin:0 0 16px;'/>
+                    <div style='background:white;border-radius:12px;padding:10px 14px;display:inline-block;margin-bottom:16px;'>
+                        <img src='data:image/png;base64,{logo_b64}' style='width:140px;display:block;'/>
+                    </div>
                     <p style='font-family:Montserrat,sans-serif;font-weight:800;font-size:2rem;letter-spacing:5px;color:#FAC318;margin:0;'>ROC</p>
                     <p style='font-family:Montserrat,sans-serif;font-weight:300;font-size:0.72rem;color:rgba(255,255,255,0.55);margin:4px 0 0;'>Registro de Ocorrências Contábeis</p>
                 </div>
