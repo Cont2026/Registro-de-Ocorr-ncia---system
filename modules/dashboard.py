@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import io
-from database.connection import get_conn, release_conn
+from database.connection import run_query
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from openpyxl.drawing.image import Image as XLImage
@@ -10,7 +10,6 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
-
 HEADER_FILL = PatternFill("solid", fgColor="041747")
 HEADER_FONT = Font(name="Calibri", bold=True, color="FFFFFF", size=12)
 HEADER_ALIGN = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -26,34 +25,22 @@ BORDER = Border(
 
 @st.cache_data(ttl=30)
 def carregar_chamados():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
+    return run_query("""
         SELECT protocolo, setor, empresa, tipo_inconsistencia,
                prioridade, status, aberto_em, atendido_em, resolvido_em
         FROM chamados ORDER BY aberto_em DESC
-    """)
-    rows = cur.fetchall()
-    cur.close()
-    release_conn(conn)
-    return rows
+    """, fetch=True)
 
 @st.cache_data(ttl=30)
 def carregar_chamados_completo():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
+    return run_query("""
         SELECT protocolo, setor, empresa, tipo_inconsistencia,
                prioridade, nf_retorna, nome_parceiro, numero_nota,
                tipo_nota, data_entrada, data_saida, data_negociacao,
                valor, observacao, status, aberto_em, atendido_em,
                resolvido_em, resolucao
         FROM chamados ORDER BY aberto_em DESC
-    """)
-    rows = cur.fetchall()
-    cur.close()
-    release_conn(conn)
-    return rows
+    """, fetch=True)
 
 def estilo_cabecalho(ws, row, num_cols):
     for col in range(1, num_cols + 1):
@@ -99,45 +86,34 @@ def tela_dashboard():
     st.markdown("---")
 
     rows = carregar_chamados()
-
     if not rows:
         st.info("Nenhum chamado registrado ainda.")
         return
 
     df = pd.DataFrame(rows, columns=[
-        "protocolo", "setor", "empresa", "tipo",
-        "prioridade", "status", "aberto_em", "atendido_em", "resolvido_em"
+        "protocolo","setor","empresa","tipo",
+        "prioridade","status","aberto_em","atendido_em","resolvido_em"
     ])
-
     df["aberto_em"] = pd.to_datetime(df["aberto_em"])
     df["resolvido_em"] = pd.to_datetime(df["resolvido_em"])
     df["tempo_resolucao"] = (df["resolvido_em"] - df["aberto_em"]).dt.total_seconds() / 3600
 
     st.markdown("#### 🔎 Filtros")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        filtro_status = st.multiselect("Status", df["status"].unique().tolist(), default=df["status"].unique().tolist())
-    with col2:
-        filtro_empresa = st.multiselect("Empresa", df["empresa"].unique().tolist(), default=df["empresa"].unique().tolist())
-    with col3:
-        filtro_setor = st.multiselect("Setor", df["setor"].unique().tolist(), default=df["setor"].unique().tolist())
+    c1, c2, c3 = st.columns(3)
+    filtro_status = c1.multiselect("Status", df["status"].unique().tolist(), default=df["status"].unique().tolist())
+    filtro_empresa = c2.multiselect("Empresa", df["empresa"].unique().tolist(), default=df["empresa"].unique().tolist())
+    filtro_setor = c3.multiselect("Setor", df["setor"].unique().tolist(), default=df["setor"].unique().tolist())
 
-    df_f = df[
-        df["status"].isin(filtro_status) &
-        df["empresa"].isin(filtro_empresa) &
-        df["setor"].isin(filtro_setor)
-    ]
+    df_f = df[df["status"].isin(filtro_status) & df["empresa"].isin(filtro_empresa) & df["setor"].isin(filtro_setor)]
 
     st.markdown("---")
     st.markdown("#### 📈 Indicadores")
     k1, k2, k3, k4, k5 = st.columns(5)
-
     total = len(df_f)
     abertos = len(df_f[df_f["status"] == "Aberto"])
     em_andamento = len(df_f[df_f["status"] == "Em andamento"])
     resolvidos = len(df_f[df_f["status"] == "Resolvido"])
     tempo_medio = df_f[df_f["tempo_resolucao"].notna()]["tempo_resolucao"].mean()
-
     k1.metric("Total", total)
     k2.metric("🔴 Abertos", abertos)
     k3.metric("🟡 Em andamento", em_andamento)
@@ -145,77 +121,59 @@ def tela_dashboard():
     k5.metric("⏱️ Tempo médio", f"{tempo_medio:.1f}h" if not pd.isna(tempo_medio) else "—")
 
     st.markdown("---")
-
-    col_a, col_b = st.columns(2)
-    with col_a:
+    ca, cb = st.columns(2)
+    with ca:
         st.markdown("##### Chamados por Tipo")
-        df_tipo = df_f.groupby("tipo").size().reset_index(name="qtd").sort_values("qtd", ascending=False)
-        fig1 = px.bar(df_tipo, x="qtd", y="tipo", orientation="h",
-                      color="qtd", color_continuous_scale="Blues",
-                      labels={"qtd": "Qtd", "tipo": ""})
-        fig1.update_layout(showlegend=False, coloraxis_showscale=False,
-                           margin=dict(l=0, r=0, t=0, b=0), height=300)
+        df_t = df_f.groupby("tipo").size().reset_index(name="qtd").sort_values("qtd", ascending=False)
+        fig1 = px.bar(df_t, x="qtd", y="tipo", orientation="h", color="qtd", color_continuous_scale="Blues", labels={"qtd":"Qtd","tipo":""})
+        fig1.update_layout(showlegend=False, coloraxis_showscale=False, margin=dict(l=0,r=0,t=0,b=0), height=300)
         st.plotly_chart(fig1, use_container_width=True)
-
-    with col_b:
+    with cb:
         st.markdown("##### Chamados por Setor")
-        df_setor = df_f.groupby("setor").size().reset_index(name="qtd").sort_values("qtd", ascending=False)
-        fig2 = px.bar(df_setor, x="qtd", y="setor", orientation="h",
-                      color="qtd", color_continuous_scale="Greens",
-                      labels={"qtd": "Qtd", "setor": ""})
-        fig2.update_layout(showlegend=False, coloraxis_showscale=False,
-                           margin=dict(l=0, r=0, t=0, b=0), height=300)
+        df_s = df_f.groupby("setor").size().reset_index(name="qtd").sort_values("qtd", ascending=False)
+        fig2 = px.bar(df_s, x="qtd", y="setor", orientation="h", color="qtd", color_continuous_scale="Greens", labels={"qtd":"Qtd","setor":""})
+        fig2.update_layout(showlegend=False, coloraxis_showscale=False, margin=dict(l=0,r=0,t=0,b=0), height=300)
         st.plotly_chart(fig2, use_container_width=True)
 
-    col_c, col_d = st.columns(2)
-    with col_c:
+    cc, cd = st.columns(2)
+    with cc:
         st.markdown("##### Chamados por Empresa")
-        df_emp = df_f.groupby("empresa").size().reset_index(name="qtd")
-        fig3 = px.pie(df_emp, names="empresa", values="qtd",
-                      color_discrete_sequence=px.colors.sequential.Blues_r)
-        fig3.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=300)
+        df_e = df_f.groupby("empresa").size().reset_index(name="qtd")
+        fig3 = px.pie(df_e, names="empresa", values="qtd", color_discrete_sequence=px.colors.sequential.Blues_r)
+        fig3.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=300)
         st.plotly_chart(fig3, use_container_width=True)
-
-    with col_d:
+    with cd:
         st.markdown("##### Chamados por Status")
-        df_status = df_f.groupby("status").size().reset_index(name="qtd")
-        cores = {"Aberto": "#ef4444", "Em andamento": "#f59e0b",
-                 "Resolvido": "#22c55e", "Cancelado": "#6b7280"}
-        fig4 = px.pie(df_status, names="status", values="qtd",
-                      color="status", color_discrete_map=cores)
-        fig4.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=300)
+        df_st = df_f.groupby("status").size().reset_index(name="qtd")
+        cores = {"Aberto":"#ef4444","Em andamento":"#f59e0b","Resolvido":"#22c55e","Cancelado":"#6b7280"}
+        fig4 = px.pie(df_st, names="status", values="qtd", color="status", color_discrete_map=cores)
+        fig4.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=300)
         st.plotly_chart(fig4, use_container_width=True)
 
     st.markdown("---")
     st.markdown("##### Evolução Mensal")
     df_f["mes"] = df_f["aberto_em"].dt.to_period("M").astype(str)
-    df_mes = df_f.groupby("mes").size().reset_index(name="qtd").sort_values("mes")
-    fig5 = px.line(df_mes, x="mes", y="qtd", markers=True,
-                   labels={"mes": "Mês", "qtd": "Chamados"})
-    fig5.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=250)
+    df_m = df_f.groupby("mes").size().reset_index(name="qtd").sort_values("mes")
+    fig5 = px.line(df_m, x="mes", y="qtd", markers=True, labels={"mes":"Mês","qtd":"Chamados"})
+    fig5.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=250)
     st.plotly_chart(fig5, use_container_width=True)
 
     st.markdown("---")
     st.markdown("##### 📥 Exportar dados")
-
     todos = carregar_chamados_completo()
     df_export = pd.DataFrame(todos, columns=[
-        "Protocolo", "Setor", "Empresa", "Abertura de Período / Descontabilização",
-        "Prioridade", "NF Retorna", "Parceiro", "Número Nota",
-        "Tipo Nota", "Data Entrada", "Data Saída", "Data Negociação",
-        "Valor", "Observação", "Status", "Aberto Em", "Atendido Em",
-        "Resolvido Em", "Resolução"
+        "Protocolo","Setor","Empresa","Abertura de Período / Descontabilização",
+        "Prioridade","NF Retorna","Parceiro","Número Nota",
+        "Tipo Nota","Data Entrada","Data Saída","Data Negociação",
+        "Valor","Observação","Status","Aberto Em","Atendido Em",
+        "Resolvido Em","Resolução"
     ])
-
-    df_kpi = pd.DataFrame({
-        "Indicador": ["Total", "Abertos", "Em Andamento", "Resolvidos", "Tempo Médio (h)"],
-        "Valor": [total, abertos, em_andamento, resolvidos,
-                  f"{tempo_medio:.1f}" if not pd.isna(tempo_medio) else "—"]
-    })
-    df_tipo_exp = df_f.groupby("tipo").size().reset_index(name="Quantidade").sort_values("Quantidade", ascending=False).rename(columns={"tipo": "Tipo"})
-    df_setor_exp = df_f.groupby("setor").size().reset_index(name="Quantidade").sort_values("Quantidade", ascending=False).rename(columns={"setor": "Setor"})
-    df_empresa_exp = df_f.groupby("empresa").size().reset_index(name="Quantidade").rename(columns={"empresa": "Empresa"})
-    df_status_exp = df_f.groupby("status").size().reset_index(name="Quantidade").rename(columns={"status": "Status"})
+    df_kpi = pd.DataFrame({"Indicador":["Total","Abertos","Em Andamento","Resolvidos","Tempo Médio (h)"],
+                            "Valor":[total,abertos,em_andamento,resolvidos,f"{tempo_medio:.1f}" if not pd.isna(tempo_medio) else "—"]})
+    df_te = df_f.groupby("tipo").size().reset_index(name="Quantidade").sort_values("Quantidade",ascending=False).rename(columns={"tipo":"Tipo"})
+    df_se = df_f.groupby("setor").size().reset_index(name="Quantidade").sort_values("Quantidade",ascending=False).rename(columns={"setor":"Setor"})
+    df_ee = df_f.groupby("empresa").size().reset_index(name="Quantidade").rename(columns={"empresa":"Empresa"})
+    df_ste = df_f.groupby("status").size().reset_index(name="Quantidade").rename(columns={"status":"Status"})
 
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
@@ -223,7 +181,7 @@ def tela_dashboard():
         ws1 = writer.sheets["Chamados"]
         inserir_cabecalho_relatorio(ws1, "ROC — Registro de Ocorrências Contábeis")
         estilo_cabecalho(ws1, 7, len(df_export.columns))
-        estilo_dados(ws1, 8, 7 + len(df_export), len(df_export.columns))
+        estilo_dados(ws1, 8, 7+len(df_export), len(df_export.columns))
         ws1.row_dimensions[7].height = 30
         ajustar_colunas(ws1)
         ws1.freeze_panes = "A8"
@@ -231,40 +189,33 @@ def tela_dashboard():
         ws2 = writer.book.create_sheet("Dashboard")
         writer.sheets["Dashboard"] = ws2
         inserir_cabecalho_relatorio(ws2, "ROC — Dashboard Operacional")
-
-        secoes = [
-            ("📊 KPIs", df_kpi, "041747", False),
-            ("📌 Por Tipo", df_tipo_exp, "041747", True),
-            ("🏢 Por Setor", df_setor_exp, "0F8C3B", True),
-            ("🏭 Por Empresa", df_empresa_exp, "0071FE", True),
-            ("🔘 Por Status", df_status_exp, "FAC318", True),
-        ]
-
+        secoes = [("📊 KPIs",df_kpi,"041747",False),("📌 Por Tipo",df_te,"041747",True),
+                  ("🏢 Por Setor",df_se,"0F8C3B",True),("🏭 Por Empresa",df_ee,"0071FE",True),
+                  ("🔘 Por Status",df_ste,"FAC318",True)]
         linha = 6
         for titulo, df_sec, cor_hex, usa_alt in secoes:
-            ws2.cell(row=linha, column=1, value=titulo).font = Font(name="Calibri", bold=True, size=12, color="041747")
-            ws2.cell(row=linha, column=1).fill = PatternFill("solid", fgColor="F0F4FF")
+            ws2.cell(row=linha,column=1,value=titulo).font = Font(name="Calibri",bold=True,size=12,color="041747")
+            ws2.cell(row=linha,column=1).fill = PatternFill("solid",fgColor="F0F4FF")
             ws2.row_dimensions[linha].height = 22
             linha += 1
-            df_sec.to_excel(writer, index=False, sheet_name="Dashboard", startrow=linha - 1)
+            df_sec.to_excel(writer, index=False, sheet_name="Dashboard", startrow=linha-1)
             font_cor = "041747" if cor_hex == "FAC318" else "FFFFFF"
-            for col_num in range(1, len(df_sec.columns) + 1):
+            for col_num in range(1, len(df_sec.columns)+1):
                 cell = ws2.cell(row=linha, column=col_num)
                 cell.fill = PatternFill("solid", fgColor=cor_hex)
                 cell.font = Font(name="Calibri", bold=True, color=font_cor, size=11)
                 cell.alignment = HEADER_ALIGN
                 cell.border = BORDER
             ws2.row_dimensions[linha].height = 25
-            for r in range(linha + 1, linha + len(df_sec) + 1):
-                alt = ALT_FILL if (r % 2 == 0 and usa_alt) else PatternFill("solid", fgColor="FFFFFF")
-                for col_num in range(1, len(df_sec.columns) + 1):
+            for r in range(linha+1, linha+len(df_sec)+1):
+                alt = ALT_FILL if (r%2==0 and usa_alt) else PatternFill("solid",fgColor="FFFFFF")
+                for col_num in range(1, len(df_sec.columns)+1):
                     cell = ws2.cell(row=r, column=col_num)
                     cell.font = DATA_FONT
-                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                    cell.alignment = Alignment(horizontal="center",vertical="center")
                     cell.fill = alt
                     cell.border = BORDER
             linha += len(df_sec) + 3
-
         ajustar_colunas(ws2)
 
     buffer.seek(0)
