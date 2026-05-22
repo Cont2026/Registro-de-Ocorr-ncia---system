@@ -62,7 +62,7 @@ def tela_novo_chamado():
             empresa = st.selectbox("🏢 Empresa *", ["", "1", "2", "6", "13", "14"])
             tipo = st.selectbox("📋 Abertura de Período / Descontabilização *", [""] + tipos)
             prioridade = st.selectbox("🚦 Prioridade *", ["Normal", "Urgente"])
-            nf_retorna = st.selectbox("🔄 NF retornará ao sistema? *", ["", "Retornará", "Não retornará"])
+         nf_retorna = st.selectbox("🔄 NF retornará ao sistema? *", ["", "Sim", "Não"])
         with col2:
             nome_parceiro = st.text_input("👤 Nome do Parceiro *")
             numero_nota = st.text_input("📄 Número da Nota *")
