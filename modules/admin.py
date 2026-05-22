@@ -22,7 +22,8 @@ def tela_admin():
                                           key=f"a_{uid}")
                 if st.button("💾 Salvar", key=f"u_{uid}"):
                     if nova_senha.strip():
-                        run_query("UPDATE usuarios SET senha=%s, ativo=%s WHERE id=%s", (nova_senha.strip(), novo_ativo, uid))
+                        run_query("UPDATE usuarios SET senha=%s, ativo=%s WHERE id=%s",
+                                  (nova_senha.strip(), novo_ativo, uid))
                     else:
                         run_query("UPDATE usuarios SET ativo=%s WHERE id=%s", (novo_ativo, uid))
                     st.success("✅ Atualizado!")
@@ -49,36 +50,39 @@ def tela_admin():
 
     with aba[1]:
         st.subheader("Gerenciar Tipos")
-
-        tipos = run_query("SELECT id, nome FROM tipos_inconsistencia WHERE ativo=1 ORDER BY nome", fetch=True)
-
-        # Inicializa lista editável na sessão
-        if "lista_tipos" not in st.session_state or st.session_state.get("reload_tipos"):
-            st.session_state.lista_tipos = [{"id": t[0], "nome": t[1]} for t in tipos]
-            st.session_state.reload_tipos = False
-
-        st.markdown("Edite, adicione ou remova os tipos abaixo. Clique em **Salvar alterações** quando terminar.")
+        st.markdown("Edite, adicione ou remova os tipos. Clique em **Salvar alterações** quando terminar.")
         st.markdown("---")
 
-        # Renderiza lista editável
-        para_remover = []
+        # Carrega do banco sempre que não estiver em edição
+        if "lista_tipos" not in st.session_state or st.session_state.get("reload_tipos", True):
+            tipos_db = run_query("SELECT id, nome FROM tipos_inconsistencia WHERE ativo=1 ORDER BY nome", fetch=True)
+            st.session_state.lista_tipos = [{"id": t[0], "nome": t[1]} for t in tipos_db]
+            st.session_state.reload_tipos = False
+
+        # Renderiza campos editáveis
+        indices_remover = []
         for i, item in enumerate(st.session_state.lista_tipos):
             c1, c2 = st.columns([5, 1])
             with c1:
-                novo_nome = st.text_input(f"Tipo {i+1}", value=item["nome"], key=f"tipo_edit_{i}", label_visibility="collapsed")
+                novo_nome = st.text_input(
+                    f"Tipo {i+1}",
+                    value=item["nome"],
+                    key=f"tipo_edit_{i}_{item.get('id','novo')}",
+                    label_visibility="collapsed"
+                )
                 st.session_state.lista_tipos[i]["nome"] = novo_nome
             with c2:
-                if st.button("🗑️", key=f"rem_{i}", help="Remover este tipo"):
-                    para_remover.append(i)
+                if st.button("🗑️", key=f"rem_{i}_{item.get('id','novo')}", help="Remover"):
+                    indices_remover.append(i)
 
-        for idx in sorted(para_remover, reverse=True):
-            st.session_state.lista_tipos.pop(idx)
+        if indices_remover:
+            for idx in sorted(indices_remover, reverse=True):
+                st.session_state.lista_tipos.pop(idx)
             st.rerun()
 
         st.markdown("---")
-
-        # Adicionar novo
         col_add, col_save = st.columns(2)
+
         with col_add:
             if st.button("➕ Adicionar novo tipo", use_container_width=True):
                 st.session_state.lista_tipos.append({"id": None, "nome": ""})
@@ -88,32 +92,35 @@ def tela_admin():
             if st.button("💾 Salvar alterações", use_container_width=True, type="primary"):
                 st.session_state.confirmar_save_tipos = True
 
-        # Confirmação antes de salvar
         if st.session_state.get("confirmar_save_tipos"):
-            st.warning("⚠️ Tem certeza que deseja salvar todas as alterações na lista de tipos?")
+            st.warning("⚠️ Tem certeza que deseja salvar todas as alterações?")
             cc1, cc2 = st.columns(2)
             with cc1:
-                if st.button("✅ Sim, salvar", use_container_width=True):
-                    # Remove todos e recria
+                if st.button("✅ Sim, salvar", use_container_width=True, key="confirmar_sim"):
+                    # Inativa todos
                     run_query("UPDATE tipos_inconsistencia SET ativo=0")
+                    # Salva cada item da lista
                     for item in st.session_state.lista_tipos:
-                        if item["nome"].strip():
-                            if item["id"]:
-                                run_query("UPDATE tipos_inconsistencia SET nome=%s, ativo=1 WHERE id=%s",
-                                          (item["nome"].strip(), item["id"]))
-                            else:
-                                try:
-                                    run_query("INSERT INTO tipos_inconsistencia (nome, ativo) VALUES (%s, 1)",
-                                              (item["nome"].strip(),))
-                                except:
-                                    pass
+                        nome_item = item["nome"].strip()
+                        if not nome_item:
+                            continue
+                        if item["id"]:
+                            run_query(
+                                "UPDATE tipos_inconsistencia SET nome=%s, ativo=1 WHERE id=%s",
+                                (nome_item, item["id"])
+                            )
+                        else:
+                            run_query(
+                                "INSERT INTO tipos_inconsistencia (nome, ativo) VALUES (%s, 1) ON CONFLICT (nome) DO UPDATE SET ativo=1",
+                                (nome_item,)
+                            )
                     st.session_state.confirmar_save_tipos = False
                     st.session_state.reload_tipos = True
                     st.cache_data.clear()
                     st.success("✅ Tipos salvos com sucesso!")
                     st.rerun()
             with cc2:
-                if st.button("❌ Cancelar", use_container_width=True):
+                if st.button("❌ Cancelar", use_container_width=True, key="confirmar_nao"):
                     st.session_state.confirmar_save_tipos = False
                     st.session_state.reload_tipos = True
                     st.rerun()
