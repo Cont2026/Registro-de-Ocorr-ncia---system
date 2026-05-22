@@ -181,8 +181,13 @@ def sidebar():
             </div>
         """, unsafe_allow_html=True)
 
-def main():
+@st.cache_resource
+def inicializar_banco():
     init_db()
+    return True
+
+def main():
+    inicializar_banco()
     if not st.session_state.logado:
         tela_login()
         return
