@@ -29,17 +29,17 @@ def converter_valor(valor):
 def carregar_tipos():
     return [r[0] for r in run_query("SELECT nome FROM tipos_inconsistencia WHERE ativo=1 ORDER BY nome", fetch=True)]
 
-@st.cache_data(ttl=300)
-def carregar_tipos_nota():
-    return [r[0] for r in run_query("SELECT nome FROM tipos_nota WHERE ativo=1 ORDER BY nome", fetch=True)]
-
 @st.cache_data(ttl=60)
 def carregar_meus_chamados(setor):
-    return run_query("SELECT protocolo, tipo_inconsistencia, empresa, status, prioridade, nome_parceiro, numero_nota, aberto_em, solicitante FROM chamados WHERE setor=%s ORDER BY aberto_em DESC", (setor,), fetch=True)
+    return run_query("""SELECT protocolo, tipo_inconsistencia, empresa, status, prioridade,
+        nome_parceiro, numero_nota, aberto_em, solicitante, financeiro_baixado
+        FROM chamados WHERE setor=%s ORDER BY aberto_em DESC""", (setor,), fetch=True)
 
 @st.cache_data(ttl=60)
 def carregar_todos_chamados():
-    return run_query("SELECT protocolo, setor, tipo_inconsistencia, empresa, status, prioridade, nome_parceiro, numero_nota, aberto_em, solicitante FROM chamados ORDER BY aberto_em DESC", fetch=True)
+    return run_query("""SELECT protocolo, setor, tipo_inconsistencia, empresa, status, prioridade,
+        nome_parceiro, numero_nota, aberto_em, solicitante, financeiro_baixado
+        FROM chamados ORDER BY aberto_em DESC""", fetch=True)
 
 def carregar_mensagens(protocolo):
     return run_query("SELECT autor, perfil, mensagem, enviado_em FROM mensagens WHERE chamado_protocolo=%s ORDER BY enviado_em ASC", (protocolo,), fetch=True)
@@ -79,81 +79,6 @@ def exibir_chat(protocolo):
             else:
                 st.warning("Digite uma mensagem antes de enviar.")
 
-def selecionar_opcao(label, opcoes, key, cols=None, cor_ativo="#041747", cor_texto_ativo="white", cor_inativo="#F0F4FF", cor_texto_inativo="#041747"):
-    st.markdown(f"<p style='font-size:14px;font-weight:600;color:#041747;margin:12px 0 6px;'>{label}</p>", unsafe_allow_html=True)
-    selecionado = st.session_state.get(key, None)
-    n_cols = cols if cols else min(len(opcoes), 4)
-    colunas = st.columns(n_cols)
-    for i, op in enumerate(opcoes):
-        with colunas[i % n_cols]:
-            ativo = selecionado == op
-            bg = cor_ativo if ativo else cor_inativo
-            cor = cor_texto_ativo if ativo else cor_texto_inativo
-            borda = cor_ativo if ativo else "#D1D5DB"
-            if st.button(
-                op,
-                key=f"btn_{key}_{i}",
-                use_container_width=True,
-            ):
-                st.session_state[key] = op
-                st.rerun()
-            st.markdown(f"""
-            <style>
-                div[data-testid="stButton"] button[kind="secondary"]:has(+ *[id*="btn_{key}_{i}"]) {{
-                    background: {bg} !important;
-                    color: {cor} !important;
-                    border: 2px solid {borda} !important;
-                }}
-            </style>
-            """, unsafe_allow_html=True)
-    return st.session_state.get(key, None)
-
-def render_opcoes(label, opcoes, key, n_cols=4):
-    st.markdown(f"<p style='font-size:14px;font-weight:600;color:#041747;margin:12px 0 6px;'>{label}</p>", unsafe_allow_html=True)
-    selecionado = st.session_state.get(key, None)
-    colunas = st.columns(n_cols)
-    novo_sel = selecionado
-    for i, op in enumerate(opcoes):
-        with colunas[i % n_cols]:
-            ativo = selecionado == op
-            bg = "#041747" if ativo else "#F8F9FA"
-            cor = "white" if ativo else "#041747"
-            borda = "#041747" if ativo else "#D1D5DB"
-            icone = "✓ " if ativo else ""
-            st.markdown(f"""
-            <div style='margin-bottom:4px;'>
-                <button onclick="" style='width:100%;padding:8px 12px;background:{bg};color:{cor};
-                border:2px solid {borda};border-radius:8px;font-family:Montserrat,sans-serif;
-                font-size:13px;font-weight:{"600" if ativo else "400"};cursor:pointer;
-                transition:all 0.15s ease;'>{icone}{op}</button>
-            </div>
-            """, unsafe_allow_html=True)
-            if st.button(op, key=f"opt_{key}_{i}", use_container_width=True, label_visibility="hidden" if False else "collapsed"):
-                novo_sel = op
-    if novo_sel != selecionado:
-        st.session_state[key] = novo_sel
-        st.rerun()
-    return st.session_state.get(key, None)
-
-def botoes_selecao(label, opcoes, key, n_cols=4):
-    st.markdown(f"<p style='font-size:14px;font-weight:600;color:#041747;margin:16px 0 8px;'>{label}</p>", unsafe_allow_html=True)
-    sel = st.session_state.get(key, None)
-    cols = st.columns(n_cols)
-    for i, op in enumerate(opcoes):
-        with cols[i % n_cols]:
-            ativo = sel == op
-            if ativo:
-                st.markdown(f"""
-                <div style='background:#041747;color:white;padding:10px 16px;border-radius:8px;
-                text-align:center;font-family:Montserrat,sans-serif;font-size:13px;font-weight:600;
-                border:2px solid #041747;margin-bottom:4px;'>✓ {op}</div>
-                """, unsafe_allow_html=True)
-            if st.button(op if not ativo else f"✓ {op}", key=f"sel_{key}_{i}", use_container_width=True,
-                        type="primary" if ativo else "secondary"):
-                st.session_state[key] = op
-                st.rerun()
-    return st.session_state.get(key, None)
-
 def tela_novo_chamado():
     st.title("➕ Novo Chamado")
     st.markdown(f"**Setor:** {st.session_state.setor}")
@@ -161,27 +86,23 @@ def tela_novo_chamado():
     st.markdown("---")
 
     tipos = carregar_tipos()
-    tipos_nota = carregar_tipos_nota()
+    tipos_movimentacao = ["Compra", "Venda"]
 
-    # TIPO DA NOTA
-    st.markdown("#### 🗂️ Tipo da Nota *")
+    # TIPO DE MOVIMENTAÇÃO
+    st.markdown("#### 🗂️ Tipo de Movimentação *")
     tipo_nota = st.session_state.get("sel_tipo_nota", None)
-    cols_nota = st.columns(len(tipos_nota))
-    for i, op in enumerate(tipos_nota):
+    cols_nota = st.columns(2)
+    for i, op in enumerate(tipos_movimentacao):
         with cols_nota[i]:
             ativo = tipo_nota == op
-            if st.button(
-                f"{'✓ ' if ativo else ''}{op}",
-                key=f"sel_tipo_nota_{i}",
-                use_container_width=True,
-                type="primary" if ativo else "secondary"
-            ):
+            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_tipo_nota_{i}",
+                use_container_width=True, type="primary" if ativo else "secondary"):
                 st.session_state["sel_tipo_nota"] = op
                 st.rerun()
     tipo_nota = st.session_state.get("sel_tipo_nota", None)
 
     if not tipo_nota:
-        st.info("Selecione o tipo da nota para continuar.")
+        st.info("Selecione o tipo de movimentação para continuar.")
         return
 
     # DATAS CONDICIONAIS
@@ -198,25 +119,21 @@ def tela_novo_chamado():
     st.markdown("#### 📋 Abertura de Período / Descontabilização *")
     tipos_com_outros = tipos + ["Outros"]
     tipo_sel = st.session_state.get("sel_tipo", None)
-    n = len(tipos_com_outros)
-    n_cols = min(n, 4)
+    n_cols = min(len(tipos_com_outros), 4)
     cols_tipo = st.columns(n_cols)
     for i, op in enumerate(tipos_com_outros):
         with cols_tipo[i % n_cols]:
             ativo = tipo_sel == op
-            if st.button(
-                f"{'✓ ' if ativo else ''}{op}",
-                key=f"sel_tipo_{i}",
-                use_container_width=True,
-                type="primary" if ativo else "secondary"
-            ):
+            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_tipo_{i}",
+                use_container_width=True, type="primary" if ativo else "secondary"):
                 st.session_state["sel_tipo"] = op
                 st.rerun()
     tipo = st.session_state.get("sel_tipo", None)
 
     tipo_outros_desc = ""
     if tipo == "Outros":
-        tipo_outros_desc = st.text_area("📝 Descreva a solicitação *", placeholder="Descreva detalhadamente...", key="outros_desc")
+        tipo_outros_desc = st.text_area("📝 Descreva a solicitação *",
+            placeholder="Descreva detalhadamente...", key="outros_desc")
 
     st.markdown("---")
 
@@ -228,12 +145,8 @@ def tela_novo_chamado():
     for i, op in enumerate(empresas):
         with cols_emp[i]:
             ativo = empresa_sel == op
-            if st.button(
-                f"{'✓ ' if ativo else ''}{op}",
-                key=f"sel_empresa_{i}",
-                use_container_width=True,
-                type="primary" if ativo else "secondary"
-            ):
+            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_empresa_{i}",
+                use_container_width=True, type="primary" if ativo else "secondary"):
                 st.session_state["sel_empresa"] = op
                 st.rerun()
     empresa = st.session_state.get("sel_empresa", None)
@@ -246,12 +159,8 @@ def tela_novo_chamado():
     for i, op in enumerate(prioridades):
         with cols_prio[i]:
             ativo = prio_sel == op
-            if st.button(
-                f"{'✓ ' if ativo else ''}{op}",
-                key=f"sel_prio_{i}",
-                use_container_width=True,
-                type="primary" if ativo else "secondary"
-            ):
+            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_prio_{i}",
+                use_container_width=True, type="primary" if ativo else "secondary"):
                 st.session_state["sel_prioridade"] = op
                 st.rerun()
     prioridade = st.session_state.get("sel_prioridade", None)
@@ -264,15 +173,25 @@ def tela_novo_chamado():
     for i, op in enumerate(nf_opcoes):
         with cols_nf[i]:
             ativo = nf_sel == op
-            if st.button(
-                f"{'✓ ' if ativo else ''}{op}",
-                key=f"sel_nf_{i}",
-                use_container_width=True,
-                type="primary" if ativo else "secondary"
-            ):
+            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_nf_{i}",
+                use_container_width=True, type="primary" if ativo else "secondary"):
                 st.session_state["sel_nf"] = op
                 st.rerun()
     nf_retorna = st.session_state.get("sel_nf", None)
+
+    # FINANCEIRO BAIXADO
+    st.markdown("#### 💰 Financeiro Baixado? *")
+    fin_opcoes = ["Sim", "Não"]
+    fin_sel = st.session_state.get("sel_fin", None)
+    cols_fin = st.columns(2)
+    for i, op in enumerate(fin_opcoes):
+        with cols_fin[i]:
+            ativo = fin_sel == op
+            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_fin_{i}",
+                use_container_width=True, type="primary" if ativo else "secondary"):
+                st.session_state["sel_fin"] = op
+                st.rerun()
+    fin_baixado = st.session_state.get("sel_fin", None)
 
     st.markdown("---")
 
@@ -296,6 +215,7 @@ def tela_novo_chamado():
         if not empresa: erros.append("Empresa")
         if not prioridade: erros.append("Prioridade")
         if not nf_retorna: erros.append("NF retornará ao sistema")
+        if not fin_baixado: erros.append("Financeiro Baixado")
         if not solicitante.strip(): erros.append("Nome do Solicitante")
         if not nome_parceiro.strip(): erros.append("Nome do Parceiro")
         if not numero_nota.strip(): erros.append("Número da Nota")
@@ -330,15 +250,15 @@ def tela_novo_chamado():
 
         run_query("""INSERT INTO chamados (protocolo,setor,empresa,tipo_inconsistencia,prioridade,nf_retorna,
             solicitante,nome_parceiro,numero_nota,tipo_nota,data_entrada,data_saida,data_negociacao,
-            valor,observacao,arquivo_nome,status,aberto_em) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            valor,observacao,arquivo_nome,status,aberto_em,financeiro_baixado)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (protocolo, st.session_state.setor, empresa, tipo_final, prioridade, nf_retorna,
              solicitante.strip(), nome_parceiro.strip(), numero_nota.strip(), tipo_nota,
              data_entrada or None, None, data_negociacao or None,
              valor_float, observacao.strip(), arquivo_nome, "Aberto",
-             datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S")))
+             datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), fin_baixado))
 
-        # Limpa seleções
-        for k in ["sel_tipo_nota","sel_tipo","sel_empresa","sel_prioridade","sel_nf","outros_desc"]:
+        for k in ["sel_tipo_nota","sel_tipo","sel_empresa","sel_prioridade","sel_nf","sel_fin","outros_desc"]:
             st.session_state.pop(k, None)
 
         st.cache_data.clear()
@@ -353,13 +273,14 @@ def tela_meus_chamados():
         st.info("Nenhum chamado registrado ainda.")
         return
     status_cor = {"Aberto":"🔴","Em andamento":"🟡","Resolvido":"🟢","Cancelado":"⚫"}
-    for protocolo, tipo, empresa, status, prioridade, parceiro, nf, aberto_em, solicitante in rows:
+    for protocolo, tipo, empresa, status, prioridade, parceiro, nf, aberto_em, solicitante, fin_baixado in rows:
         with st.expander(f"{status_cor.get(status,'⚪')} {protocolo} — {parceiro} | NF: {nf} | {status}"):
             c1,c2,c3,c4 = st.columns(4)
             c1.markdown(f"**Empresa:** {empresa}")
             c2.markdown(f"**Tipo:** {tipo}")
             c3.markdown(f"**Prioridade:** {prioridade}")
             c4.markdown(f"**Solicitante:** {solicitante or '—'}")
+            c1.markdown(f"**Fin. Baixado:** {fin_baixado or '—'}")
             st.markdown(f"**Aberto em:** {aberto_em}")
             st.markdown("---")
             exibir_chat(protocolo)
@@ -376,7 +297,7 @@ def tela_todos_chamados():
     filtro_empresa = c2.selectbox("Empresa", ["Todas","1","2","6","13","14"])
     filtro_setor = c3.text_input("Setor")
     status_cor = {"Aberto":"🔴","Em andamento":"🟡","Resolvido":"🟢","Cancelado":"⚫"}
-    for protocolo, setor, tipo, empresa, status, prioridade, parceiro, nf, aberto_em, solicitante in rows:
+    for protocolo, setor, tipo, empresa, status, prioridade, parceiro, nf, aberto_em, solicitante, fin_baixado in rows:
         if filtro_status != "Todos" and status != filtro_status: continue
         if filtro_empresa != "Todas" and empresa != filtro_empresa: continue
         if filtro_setor and filtro_setor.lower() not in setor.lower(): continue
@@ -386,6 +307,7 @@ def tela_todos_chamados():
             c2.markdown(f"**Tipo:** {tipo}")
             c3.markdown(f"**Prioridade:** {prioridade}")
             c4.markdown(f"**Solicitante:** {solicitante or '—'}")
+            c1.markdown(f"**Fin. Baixado:** {fin_baixado or '—'}")
             st.markdown(f"**Aberto em:** {aberto_em}")
             st.markdown("---")
             novo_status = st.selectbox("Atualizar status", ["Aberto","Em andamento","Resolvido","Cancelado"],
