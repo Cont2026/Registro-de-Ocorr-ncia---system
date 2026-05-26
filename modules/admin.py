@@ -4,12 +4,11 @@ from database.connection import run_query
 def tela_admin():
     st.title("⚙️ Administração")
     st.markdown("---")
-    aba = st.tabs(["👥 Usuários e Setores", "📋 Abertura de Período / Descontabilização"])
+    aba = st.tabs(["👥 Usuários e Setores", "📋 Tipos de Inconsistência", "🗂️ Tipos de Nota"])
 
     with aba[0]:
         st.subheader("Usuários e Setores cadastrados")
         usuarios = run_query("SELECT id, nome, login, perfil, ativo FROM usuarios ORDER BY perfil, nome", fetch=True)
-
         for uid, nome, login, perfil, ativo in usuarios:
             status_icon = "🟢" if ativo else "🔴"
             perfil_icon = "👑" if perfil == "contabilidade" else "🏢"
@@ -20,8 +19,7 @@ def tela_admin():
                     format_func=lambda x: "Ativo" if x == 1 else "Inativo", key=f"a_{uid}")
                 if st.button("💾 Salvar", key=f"u_{uid}"):
                     if nova_senha.strip():
-                        run_query("UPDATE usuarios SET senha=%s, ativo=%s WHERE id=%s",
-                            (nova_senha.strip(), novo_ativo, uid))
+                        run_query("UPDATE usuarios SET senha=%s, ativo=%s WHERE id=%s", (nova_senha.strip(), novo_ativo, uid))
                     else:
                         run_query("UPDATE usuarios SET ativo=%s WHERE id=%s", (novo_ativo, uid))
                     st.success("✅ Atualizado!")
@@ -39,8 +37,7 @@ def tela_admin():
                     st.error("Preencha todos os campos.")
                 else:
                     try:
-                        run_query(
-                            "INSERT INTO usuarios (nome,login,senha,perfil) VALUES (%s,%s,%s,'setor')",
+                        run_query("INSERT INTO usuarios (nome,login,senha,perfil) VALUES (%s,%s,%s,'setor')",
                             (novo_nome_setor.strip(), novo_login.strip(), nova_senha_setor.strip()))
                         st.success(f"Setor '{novo_nome_setor}' adicionado!")
                         st.rerun()
@@ -48,13 +45,12 @@ def tela_admin():
                         st.error("Login ja existe.")
 
     with aba[1]:
-        st.subheader("Gerenciar Tipos")
-        st.markdown("Edite, adicione ou remova os tipos. Clique em Salvar quando terminar.")
+        st.subheader("Gerenciar Tipos de Inconsistência")
+        st.markdown("Edite, adicione ou remova os tipos. Clique em **Salvar** quando terminar.")
         st.markdown("---")
 
         if "lista_tipos" not in st.session_state or st.session_state.get("reload_tipos", True):
-            tipos_db = run_query(
-                "SELECT id, nome FROM tipos_inconsistencia WHERE ativo=1 ORDER BY nome", fetch=True)
+            tipos_db = run_query("SELECT id, nome FROM tipos_inconsistencia WHERE ativo=1 ORDER BY nome", fetch=True)
             st.session_state.lista_tipos = [{"id": t[0], "nome": t[1]} for t in tipos_db]
             st.session_state.reload_tipos = False
 
@@ -63,10 +59,8 @@ def tela_admin():
             c1, c2 = st.columns([5, 1])
             with c1:
                 chave = str(item.get("id", "novo"))
-                novo_nome = st.text_input(
-                    f"Tipo {i+1}", value=item["nome"],
-                    key=f"tipo_edit_{i}_{chave}",
-                    label_visibility="collapsed")
+                novo_nome = st.text_input(f"Tipo {i+1}", value=item["nome"],
+                    key=f"tipo_edit_{i}_{chave}", label_visibility="collapsed")
                 st.session_state.lista_tipos[i]["nome"] = novo_nome
             with c2:
                 if st.button("X", key=f"rem_{i}_{chave}", help="Remover"):
@@ -79,12 +73,10 @@ def tela_admin():
 
         st.markdown("---")
         col_add, col_save = st.columns(2)
-
         with col_add:
             if st.button("Adicionar novo tipo", use_container_width=True):
                 st.session_state.lista_tipos.append({"id": None, "nome": ""})
                 st.rerun()
-
         with col_save:
             if st.button("Salvar alteracoes", use_container_width=True, type="primary"):
                 st.session_state.confirmar_save_tipos = True
@@ -97,16 +89,11 @@ def tela_admin():
                     run_query("UPDATE tipos_inconsistencia SET ativo=0")
                     for item in st.session_state.lista_tipos:
                         nome_item = item["nome"].strip()
-                        if not nome_item:
-                            continue
+                        if not nome_item: continue
                         if item["id"]:
-                            run_query(
-                                "UPDATE tipos_inconsistencia SET nome=%s, ativo=1 WHERE id=%s",
-                                (nome_item, item["id"]))
+                            run_query("UPDATE tipos_inconsistencia SET nome=%s, ativo=1 WHERE id=%s", (nome_item, item["id"]))
                         else:
-                            run_query(
-                                "INSERT INTO tipos_inconsistencia (nome,ativo) VALUES (%s,1) ON CONFLICT (nome) DO UPDATE SET ativo=1",
-                                (nome_item,))
+                            run_query("INSERT INTO tipos_inconsistencia (nome,ativo) VALUES (%s,1) ON CONFLICT (nome) DO UPDATE SET ativo=1", (nome_item,))
                     st.session_state.confirmar_save_tipos = False
                     st.session_state.reload_tipos = True
                     st.cache_data.clear()
@@ -116,4 +103,65 @@ def tela_admin():
                 if st.button("Cancelar", use_container_width=True, key="confirmar_nao"):
                     st.session_state.confirmar_save_tipos = False
                     st.session_state.reload_tipos = True
+                    st.rerun()
+
+    with aba[2]:
+        st.subheader("Gerenciar Tipos de Nota")
+        st.markdown("Edite, adicione ou remova os tipos de nota. Clique em **Salvar** quando terminar.")
+        st.markdown("---")
+
+        if "lista_tipos_nota" not in st.session_state or st.session_state.get("reload_tipos_nota", True):
+            tipos_nota_db = run_query("SELECT id, nome FROM tipos_nota WHERE ativo=1 ORDER BY nome", fetch=True)
+            st.session_state.lista_tipos_nota = [{"id": t[0], "nome": t[1]} for t in tipos_nota_db]
+            st.session_state.reload_tipos_nota = False
+
+        indices_remover_nota = []
+        for i, item in enumerate(st.session_state.lista_tipos_nota):
+            c1, c2 = st.columns([5, 1])
+            with c1:
+                chave = str(item.get("id", "novo"))
+                novo_nome = st.text_input(f"Tipo Nota {i+1}", value=item["nome"],
+                    key=f"nota_edit_{i}_{chave}", label_visibility="collapsed")
+                st.session_state.lista_tipos_nota[i]["nome"] = novo_nome
+            with c2:
+                if st.button("X", key=f"rem_nota_{i}_{chave}", help="Remover"):
+                    indices_remover_nota.append(i)
+
+        if indices_remover_nota:
+            for idx in sorted(indices_remover_nota, reverse=True):
+                st.session_state.lista_tipos_nota.pop(idx)
+            st.rerun()
+
+        st.markdown("---")
+        col_add2, col_save2 = st.columns(2)
+        with col_add2:
+            if st.button("Adicionar novo tipo de nota", use_container_width=True):
+                st.session_state.lista_tipos_nota.append({"id": None, "nome": ""})
+                st.rerun()
+        with col_save2:
+            if st.button("Salvar tipos de nota", use_container_width=True, type="primary"):
+                st.session_state.confirmar_save_nota = True
+
+        if st.session_state.get("confirmar_save_nota"):
+            st.warning("Tem certeza que deseja salvar?")
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                if st.button("Sim, salvar", use_container_width=True, key="confirmar_sim_nota"):
+                    run_query("UPDATE tipos_nota SET ativo=0")
+                    for item in st.session_state.lista_tipos_nota:
+                        nome_item = item["nome"].strip()
+                        if not nome_item: continue
+                        if item["id"]:
+                            run_query("UPDATE tipos_nota SET nome=%s, ativo=1 WHERE id=%s", (nome_item, item["id"]))
+                        else:
+                            run_query("INSERT INTO tipos_nota (nome,ativo) VALUES (%s,1) ON CONFLICT (nome) DO UPDATE SET ativo=1", (nome_item,))
+                    st.session_state.confirmar_save_nota = False
+                    st.session_state.reload_tipos_nota = True
+                    st.cache_data.clear()
+                    st.success("Tipos de nota salvos!")
+                    st.rerun()
+            with cc2:
+                if st.button("Cancelar", use_container_width=True, key="confirmar_nao_nota"):
+                    st.session_state.confirmar_save_nota = False
+                    st.session_state.reload_tipos_nota = True
                     st.rerun()
