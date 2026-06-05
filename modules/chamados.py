@@ -4,6 +4,7 @@ import calendar
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from database.connection import run_query
+from modules.email_service import email_novo_chamado, email_atualizacao_chamado, email_nova_mensagem
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
 
@@ -41,6 +42,14 @@ def carregar_todos_chamados():
         nome_parceiro, numero_nota, aberto_em, solicitante, financeiro_baixado
         FROM chamados ORDER BY aberto_em DESC""", fetch=True)
 
+def buscar_email_contabilidade():
+    rows = run_query("SELECT email FROM usuarios WHERE perfil='contabilidade' AND ativo=1 LIMIT 1", fetch=True)
+    return rows[0][0] if rows else None
+
+def buscar_email_setor(setor_nome):
+    rows = run_query("SELECT email FROM usuarios WHERE setor_nome=%s AND ativo=1 LIMIT 1", (setor_nome,), fetch=True)
+    return rows[0][0] if rows else None
+
 def carregar_mensagens(protocolo):
     return run_query("SELECT autor, perfil, mensagem, enviado_em FROM mensagens WHERE chamado_protocolo=%s ORDER BY enviado_em ASC", (protocolo,), fetch=True)
 
@@ -48,7 +57,7 @@ def enviar_mensagem(protocolo, autor, perfil, mensagem):
     run_query("INSERT INTO mensagens (chamado_protocolo,autor,perfil,mensagem,enviado_em) VALUES (%s,%s,%s,%s,%s)",
               (protocolo, autor, perfil, mensagem, datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S")))
 
-def exibir_chat(protocolo):
+def exibir_chat(protocolo, setor_chamado):
     st.markdown("#### 💬 Acompanhamento")
     mensagens = carregar_mensagens(protocolo)
     if not mensagens:
@@ -69,12 +78,23 @@ def exibir_chat(protocolo):
                     <p style='font-size:10px;margin:6px 0 0;color:{cor_meta};text-align:right;'>{enviado_em}</p>
                 </div>
             </div>""", unsafe_allow_html=True)
+
     st.markdown("<br>", unsafe_allow_html=True)
     with st.form(key=f"chat_{protocolo}", clear_on_submit=True):
         nova_msg = st.text_area("Nova mensagem", placeholder="Digite sua mensagem...", height=80, label_visibility="collapsed")
         if st.form_submit_button("📨 Enviar", use_container_width=True):
             if nova_msg.strip():
                 enviar_mensagem(protocolo, st.session_state.usuario, st.session_state.perfil, nova_msg.strip())
+                # Notifica o outro lado
+                try:
+                    if st.session_state.perfil == "contabilidade":
+                        email_dest = buscar_email_setor(setor_chamado)
+                    else:
+                        email_dest = buscar_email_contabilidade()
+                    if email_dest:
+                        email_nova_mensagem(email_dest, protocolo, st.session_state.usuario, nova_msg.strip())
+                except:
+                    pass
                 st.rerun()
             else:
                 st.warning("Digite uma mensagem antes de enviar.")
@@ -88,7 +108,6 @@ def tela_novo_chamado():
     tipos = carregar_tipos()
     tipos_movimentacao = ["Compra", "Venda"]
 
-    # TIPO DE MOVIMENTAÇÃO
     st.markdown("#### 🗂️ Tipo de Movimentação *")
     tipo_nota = st.session_state.get("sel_tipo_nota", None)
     cols_nota = st.columns(2)
@@ -105,7 +124,6 @@ def tela_novo_chamado():
         st.info("Selecione o tipo de movimentação para continuar.")
         return
 
-    # DATAS CONDICIONAIS
     if tipo_nota == "Compra":
         data_entrada = st.date_input("📥 Data da Nota *", value=None, key="data_entrada")
         data_negociacao = None
@@ -115,7 +133,6 @@ def tela_novo_chamado():
 
     st.markdown("---")
 
-    # TIPO DE INCONSISTÊNCIA
     st.markdown("#### 📋 Abertura de Período / Descontabilização *")
     tipos_com_outros = tipos + ["Outros"]
     tipo_sel = st.session_state.get("sel_tipo", None)
@@ -137,7 +154,6 @@ def tela_novo_chamado():
 
     st.markdown("---")
 
-    # EMPRESA
     st.markdown("#### 🏢 Empresa *")
     empresas = ["1", "2", "6", "13", "14"]
     empresa_sel = st.session_state.get("sel_empresa", None)
@@ -151,7 +167,6 @@ def tela_novo_chamado():
                 st.rerun()
     empresa = st.session_state.get("sel_empresa", None)
 
-    # PRIORIDADE
     st.markdown("#### 🚦 Prioridade *")
     prioridades = ["Normal", "Urgente"]
     prio_sel = st.session_state.get("sel_prioridade", None)
@@ -165,7 +180,6 @@ def tela_novo_chamado():
                 st.rerun()
     prioridade = st.session_state.get("sel_prioridade", None)
 
-    # NF RETORNA
     st.markdown("#### 🔄 NF retornará ao sistema? *")
     nf_opcoes = ["Sim", "Não"]
     nf_sel = st.session_state.get("sel_nf", None)
@@ -179,7 +193,6 @@ def tela_novo_chamado():
                 st.rerun()
     nf_retorna = st.session_state.get("sel_nf", None)
 
-    # FINANCEIRO BAIXADO
     st.markdown("#### 💰 Financeiro Baixado? *")
     fin_opcoes = ["Sim", "Não"]
     fin_sel = st.session_state.get("sel_fin", None)
@@ -195,7 +208,6 @@ def tela_novo_chamado():
 
     st.markdown("---")
 
-    # CAMPOS DE TEXTO
     with st.form("form_chamado", clear_on_submit=True):
         col1, col2 = st.columns(2)
         with col1:
@@ -258,6 +270,16 @@ def tela_novo_chamado():
              valor_float, observacao.strip(), arquivo_nome, "Aberto",
              datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), fin_baixado))
 
+        # Notifica a Contabilidade
+        try:
+            email_cont = buscar_email_contabilidade()
+            if email_cont:
+                email_novo_chamado(email_cont, protocolo, st.session_state.setor,
+                    tipo_final, prioridade, nome_parceiro.strip(),
+                    numero_nota.strip(), solicitante.strip())
+        except:
+            pass
+
         for k in ["sel_tipo_nota","sel_tipo","sel_empresa","sel_prioridade","sel_nf","sel_fin","outros_desc"]:
             st.session_state.pop(k, None)
 
@@ -283,7 +305,7 @@ def tela_meus_chamados():
             c1.markdown(f"**Fin. Baixado:** {fin_baixado or '—'}")
             st.markdown(f"**Aberto em:** {aberto_em}")
             st.markdown("---")
-            exibir_chat(protocolo)
+            exibir_chat(protocolo, st.session_state.setor)
 
 def tela_todos_chamados():
     st.title("📋 Todos os Chamados")
@@ -317,8 +339,15 @@ def tela_todos_chamados():
                 run_query("""UPDATE chamados SET status=%s, atendido_em=COALESCE(atendido_em,%s),
                     resolvido_em=CASE WHEN %s='Resolvido' THEN %s ELSE resolvido_em END WHERE protocolo=%s""",
                     (novo_status, agora, novo_status, agora, protocolo))
+                # Notifica o setor
+                try:
+                    email_dest = buscar_email_setor(setor)
+                    if email_dest:
+                        email_atualizacao_chamado(email_dest, protocolo, novo_status)
+                except:
+                    pass
                 st.cache_data.clear()
                 st.success("✅ Atualizado!")
                 st.rerun()
             st.markdown("---")
-            exibir_chat(protocolo)
+            exibir_chat(protocolo, setor)
