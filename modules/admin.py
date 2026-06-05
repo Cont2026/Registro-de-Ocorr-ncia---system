@@ -21,14 +21,27 @@ def tela_admin():
                 nova_senha = c1.text_input("Nova senha do setor", key=f"s_{uid}", placeholder="Deixe em branco para não alterar")
                 novo_ativo = c2.selectbox("Status", [1, 0], index=0 if ativo else 1,
                     format_func=lambda x: "Ativo" if x == 1 else "Inativo", key=f"a_{uid}")
-                if st.button("💾 Salvar", key=f"u_{uid}"):
-                    if nova_senha.strip():
-                        run_query("UPDATE usuarios SET senha=%s, ativo=%s WHERE id=%s",
-                            (nova_senha.strip(), novo_ativo, uid))
-                    else:
-                        run_query("UPDATE usuarios SET ativo=%s WHERE id=%s", (novo_ativo, uid))
-                    st.success("✅ Atualizado!")
-                    st.rerun()
+                col_salvar, col_reset = st.columns(2)
+                with col_salvar:
+                    if st.button("💾 Salvar", key=f"u_{uid}"):
+                        if nova_senha.strip():
+                            run_query("UPDATE usuarios SET senha=%s, ativo=%s, primeiro_acesso=1 WHERE id=%s",
+                                (nova_senha.strip(), novo_ativo, uid))
+                        else:
+                            run_query("UPDATE usuarios SET ativo=%s WHERE id=%s", (novo_ativo, uid))
+                        st.success("✅ Atualizado!")
+                        st.rerun()
+                with col_reset:
+                    if perfil == "setor" and setor_nome:
+                        if st.button("🔄 Resetar para senha do setor", key=f"reset_{uid}"):
+                            senha_setor = run_query(
+                                "SELECT senha FROM usuarios WHERE setor_nome=%s AND perfil='setor' ORDER BY id LIMIT 1",
+                                (setor_nome,), fetch=True)
+                            if senha_setor:
+                                run_query("UPDATE usuarios SET senha=%s, primeiro_acesso=1 WHERE id=%s",
+                                    (senha_setor[0][0], uid))
+                                st.success("✅ Senha resetada para o padrão do setor! Usuário precisará trocar no próximo acesso.")
+                                st.rerun()
 
         st.markdown("---")
         st.subheader("➕ Novo Setor")
