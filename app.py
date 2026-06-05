@@ -37,6 +37,8 @@ if "logado" not in st.session_state:
     st.session_state.perfil = None
     st.session_state.setor = None
     st.session_state.pagina = None
+    st.session_state.email = None
+    st.session_state.user_id = None
 
 @st.cache_resource
 def inicializar_banco():
@@ -72,9 +74,15 @@ def get_admin():
     return admin
 
 @st.cache_data(ttl=300, show_spinner=False)
-def buscar_usuario(login, senha):
-    rows = run_query("SELECT nome, perfil FROM usuarios WHERE login=%s AND senha=%s AND ativo=1", (login, senha), fetch=True)
+def buscar_usuario(email, senha):
+    rows = run_query(
+        "SELECT id, nome, perfil, setor_nome, primeiro_acesso FROM usuarios WHERE email=%s AND senha=%s AND ativo=1",
+        (email, senha), fetch=True)
     return rows[0] if rows else None
+
+@st.cache_data(ttl=300, show_spinner=False)
+def buscar_setores():
+    return run_query("SELECT DISTINCT nome FROM usuarios WHERE perfil='setor' ORDER BY nome", fetch=True)
 
 def tela_login():
     logo_b64 = carregar_logo_colorida()
@@ -91,22 +99,92 @@ def tela_login():
                     <p style='font-family:Montserrat,sans-serif;font-weight:300;font-size:0.8rem;color:gray;margin:4px 0 0;'>Grupo LLE</p>
                 </div>
         """, unsafe_allow_html=True)
-        with st.form("form_login"):
-            login = st.text_input("Usuário", placeholder="seu.login")
-            senha = st.text_input("Senha", type="password", placeholder="••••••••")
-            entrar = st.form_submit_button("Entrar", use_container_width=True)
+
+        aba_login, aba_cadastro = st.tabs(["🔐 Entrar", "📝 Primeiro acesso"])
+
+        with aba_login:
+            with st.form("form_login"):
+                email = st.text_input("E-mail", placeholder="seu.email@grupolle.com.br")
+                senha = st.text_input("Senha", type="password", placeholder="••••••••")
+                entrar = st.form_submit_button("Entrar", use_container_width=True)
+            if entrar:
+                if not email.strip().endswith("@grupolle.com.br"):
+                    st.error("Use seu e-mail corporativo @grupolle.com.br")
+                else:
+                    usuario = buscar_usuario(email.strip().lower(), senha.strip())
+                    if usuario:
+                        uid, nome, perfil, setor_nome, primeiro_acesso = usuario
+                        st.session_state.logado = True
+                        st.session_state.user_id = uid
+                        st.session_state.usuario = nome
+                        st.session_state.perfil = perfil
+                        st.session_state.setor = setor_nome or nome
+                        st.session_state.email = email.strip().lower()
+                        st.session_state.primeiro_acesso = primeiro_acesso
+                        st.session_state.pagina = "trocar_senha" if primeiro_acesso else ("dashboard" if perfil == "contabilidade" else "novo_chamado")
+                        st.rerun()
+                    else:
+                        st.error("E-mail ou senha incorretos.")
+
+        with aba_cadastro:
+            with st.form("form_cadastro"):
+                st.markdown("**Somente e-mails @grupolle.com.br são aceitos.**")
+                novo_nome = st.text_input("Seu nome completo *")
+                novo_email = st.text_input("Seu e-mail corporativo *", placeholder="seu.email@grupolle.com.br")
+                setores_lista = run_query("SELECT DISTINCT setor_nome FROM usuarios WHERE perfil='setor' AND setor_nome IS NOT NULL ORDER BY setor_nome", fetch=True)
+                opcoes_setores = [s[0] for s in setores_lista] if setores_lista else []
+                setor_escolhido = st.selectbox("Seu setor *", [""] + opcoes_setores)
+                cadastrar = st.form_submit_button("Solicitar acesso", use_container_width=True)
+
+            if cadastrar:
+                erros = []
+                if not novo_nome.strip(): erros.append("Nome")
+                if not novo_email.strip(): erros.append("E-mail")
+                if not setor_escolhido: erros.append("Setor")
+                if novo_email.strip() and not novo_email.strip().lower().endswith("@grupolle.com.br"):
+                    st.error("Use seu e-mail corporativo @grupolle.com.br")
+                elif erros:
+                    st.error(f"Preencha: {', '.join(erros)}")
+                else:
+                    senha_setor = run_query(
+                        "SELECT senha FROM usuarios WHERE setor_nome=%s AND perfil='setor' LIMIT 1",
+                        (setor_escolhido,), fetch=True)
+                    if not senha_setor:
+                        st.error("Setor não encontrado. Contate a Contabilidade.")
+                    else:
+                        try:
+                            run_query("""INSERT INTO usuarios (nome, email, login, senha, perfil, setor_nome, ativo, primeiro_acesso)
+                                VALUES (%s, %s, %s, %s, 'setor', %s, 1, 1)""",
+                                (novo_nome.strip(), novo_email.strip().lower(),
+                                 novo_email.strip().lower(), senha_setor[0][0], setor_escolhido))
+                            st.success("✅ Acesso criado! Faça login com seu e-mail e a senha do seu setor.")
+                        except:
+                            st.error("Este e-mail já está cadastrado.")
+
         st.markdown("</div>", unsafe_allow_html=True)
-        if entrar:
-            usuario = buscar_usuario(login.strip(), senha.strip())
-            if usuario:
-                st.session_state.logado = True
-                st.session_state.usuario = usuario[0]
-                st.session_state.perfil = usuario[1]
-                st.session_state.setor = usuario[0]
-                st.session_state.pagina = "dashboard" if usuario[1] == "contabilidade" else "novo_chamado"
-                st.rerun()
+
+def tela_trocar_senha():
+    st.title("🔑 Troque sua senha")
+    st.markdown("Este é seu primeiro acesso. Por segurança, defina uma senha pessoal.")
+    st.markdown("---")
+    col1, col2, col3 = st.columns([1, 1.2, 1])
+    with col2:
+        with st.form("form_trocar_senha"):
+            nova = st.text_input("Nova senha *", type="password", placeholder="Mínimo 6 caracteres")
+            confirma = st.text_input("Confirme a senha *", type="password")
+            salvar = st.form_submit_button("Salvar senha", use_container_width=True)
+        if salvar:
+            if not nova.strip() or len(nova.strip()) < 6:
+                st.error("A senha deve ter no mínimo 6 caracteres.")
+            elif nova.strip() != confirma.strip():
+                st.error("As senhas não coincidem.")
             else:
-                st.error("Usuário ou senha incorretos.")
+                run_query("UPDATE usuarios SET senha=%s, primeiro_acesso=0 WHERE id=%s",
+                          (nova.strip(), st.session_state.user_id))
+                st.session_state.primeiro_acesso = 0
+                st.session_state.pagina = "dashboard" if st.session_state.perfil == "contabilidade" else "novo_chamado"
+                st.success("✅ Senha alterada com sucesso!")
+                st.rerun()
 
 def sidebar():
     logo_b64 = carregar_logo_colorida()
@@ -121,12 +199,28 @@ def sidebar():
                     <p style='font-family:Montserrat,sans-serif;font-weight:300;font-size:0.72rem;color:rgba(255,255,255,0.55);margin:4px 0 0;'>Registro de Ocorrências Contábeis</p>
                 </div>
             """, unsafe_allow_html=True)
+
         st.markdown(f"""
             <div style='margin-bottom:16px;'>
                 <p style='font-size:0.75rem;color:rgba(255,255,255,0.5);font-family:Montserrat,sans-serif;margin:0;'>Logado como</p>
                 <p style='font-size:0.9rem;font-weight:600;color:white;font-family:Montserrat,sans-serif;margin:0;'>👤 {st.session_state.usuario}</p>
+                <p style='font-size:0.75rem;color:rgba(255,255,255,0.4);font-family:Montserrat,sans-serif;margin:2px 0 0;'>{st.session_state.email or ""}</p>
             </div>
         """, unsafe_allow_html=True)
+
+        if st.session_state.perfil == "contabilidade":
+            abertos = run_query("SELECT COUNT(*) FROM chamados WHERE status='Aberto'", fetch=True)[0][0]
+            em_andamento = run_query("SELECT COUNT(*) FROM chamados WHERE status='Em andamento'", fetch=True)[0][0]
+            if abertos > 0 or em_andamento > 0:
+                st.markdown(f"""
+                <div style='background:rgba(250,195,24,0.15);border:1px solid rgba(250,195,24,0.4);
+                border-radius:10px;padding:10px 14px;margin-bottom:12px;'>
+                    <p style='font-size:12px;font-weight:700;color:#FAC318;margin:0 0 6px;'>⚡ Chamados pendentes</p>
+                    {"<p style='font-size:12px;color:white;margin:0;'>🔴 " + str(abertos) + " aberto(s)</p>" if abertos > 0 else ""}
+                    {"<p style='font-size:12px;color:white;margin:0;'>🟡 " + str(em_andamento) + " em andamento</p>" if em_andamento > 0 else ""}
+                </div>
+                """, unsafe_allow_html=True)
+
         st.markdown("---")
         paginas = {
             "📊 Dashboard": "dashboard",
@@ -157,6 +251,9 @@ def main():
     inicializar_banco()
     if not st.session_state.logado:
         tela_login()
+        return
+    if st.session_state.get("primeiro_acesso"):
+        tela_trocar_senha()
         return
     if not st.session_state.pagina:
         st.session_state.pagina = "dashboard" if st.session_state.perfil == "contabilidade" else "novo_chamado"
