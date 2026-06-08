@@ -102,7 +102,7 @@ def exibir_chat(protocolo, setor_chamado):
             else:
                 st.warning("Digite uma mensagem antes de enviar.")
 
-def registrar_fechamento(parcial):
+def registrar_fechamento(parcial, tipo_nota, data_entrada, data_negociacao):
     tipo_final = f"Informar fechamento de período - {parcial}"
     total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
     protocolo = f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-{str(total+1).zfill(4)}"
@@ -112,8 +112,8 @@ def registrar_fechamento(parcial):
         valor,observacao,arquivo_nome,status,aberto_em,financeiro_baixado)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
         (protocolo, st.session_state.setor, "", tipo_final, "Normal", "",
-         st.session_state.usuario, "", "", "",
-         None, None, None,
+         st.session_state.usuario, "", "", tipo_nota or "",
+         data_entrada or None, None, data_negociacao or None,
          None, "", None, "Aberto",
          datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), ""))
 
@@ -135,7 +135,35 @@ def tela_novo_chamado():
 
     tipos = carregar_tipos()
 
-    # 1) Abertura de Período / Descontabilização — define o fluxo do formulário
+    # 1) Tipo de Movimentação (primeiro)
+    st.markdown("#### 🗂️ Tipo de Movimentação *")
+    tipos_movimentacao = carregar_tipos_nota()
+    if not tipos_movimentacao:
+        st.warning("⚠️ Nenhum tipo de movimentação cadastrado. Solicite o cadastro no painel Admin.")
+        return
+    tipo_nota = st.session_state.get("sel_tipo_nota", None)
+    cols_mov = st.columns(min(len(tipos_movimentacao), 4))
+    for i, op in enumerate(tipos_movimentacao):
+        with cols_mov[i % len(cols_mov)]:
+            ativo = tipo_nota == op
+            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_tipo_nota_{i}", use_container_width=True, type="primary" if ativo else "secondary"):
+                st.session_state["sel_tipo_nota"] = op
+                st.rerun()
+    tipo_nota = st.session_state.get("sel_tipo_nota", None)
+    if not tipo_nota:
+        st.info("Selecione o tipo de movimentação para continuar.")
+        return
+
+    eh_compra = "compra" in tipo_nota.lower()
+    if eh_compra:
+        data_entrada = st.date_input("📥 Data da Nota *", value=None, key="data_entrada")
+        data_negociacao = None
+    else:
+        data_negociacao = st.date_input("🤝 Data de Negociação *", value=None, key="data_negociacao")
+        data_entrada = None
+
+    # 2) Abertura de Período / Descontabilização
+    st.markdown("---")
     st.markdown("#### 📋 Abertura de Período / Descontabilização *")
     tipos_com_outros = tipos + ["Outros"]
     tipo_sel = st.session_state.get("sel_tipo", None)
@@ -171,8 +199,8 @@ def tela_novo_chamado():
             if not parcial:
                 st.error("⚠️ Selecione o fechamento parcial.")
                 return
-            protocolo = registrar_fechamento(parcial)
-            for k in ["sel_tipo", "sel_parcial"]:
+            protocolo = registrar_fechamento(parcial, tipo_nota, data_entrada, data_negociacao)
+            for k in ["sel_tipo_nota", "sel_tipo", "sel_parcial"]:
                 st.session_state.pop(k, None)
             st.cache_data.clear()
             st.success(f"✅ Chamado registrado! Protocolo: **{protocolo}**")
@@ -183,33 +211,6 @@ def tela_novo_chamado():
     tipo_outros_desc = ""
     if tipo == "Outros":
         tipo_outros_desc = st.text_area("📝 Descreva a solicitação *", placeholder="Descreva detalhadamente...", key="outros_desc")
-
-    st.markdown("---")
-    st.markdown("#### 🗂️ Tipo de Movimentação *")
-    tipos_movimentacao = carregar_tipos_nota()
-    if not tipos_movimentacao:
-        st.warning("⚠️ Nenhum tipo de movimentação cadastrado. Solicite o cadastro no painel Admin.")
-        return
-    tipo_nota = st.session_state.get("sel_tipo_nota", None)
-    cols_mov = st.columns(min(len(tipos_movimentacao), 4))
-    for i, op in enumerate(tipos_movimentacao):
-        with cols_mov[i % len(cols_mov)]:
-            ativo = tipo_nota == op
-            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_tipo_nota_{i}", use_container_width=True, type="primary" if ativo else "secondary"):
-                st.session_state["sel_tipo_nota"] = op
-                st.rerun()
-    tipo_nota = st.session_state.get("sel_tipo_nota", None)
-    if not tipo_nota:
-        st.info("Selecione o tipo de movimentação para continuar.")
-        return
-
-    eh_compra = "compra" in tipo_nota.lower()
-    if eh_compra:
-        data_entrada = st.date_input("📥 Data da Nota *", value=None, key="data_entrada")
-        data_negociacao = None
-    else:
-        data_negociacao = st.date_input("🤝 Data de Negociação *", value=None, key="data_negociacao")
-        data_entrada = None
 
     st.markdown("---")
     st.markdown("#### 🏢 Empresa *")
