@@ -2,9 +2,9 @@ import streamlit as st
 from database.connection import run_query
 
 def tela_admin():
-    st.title("⚙️ Administração")
+    st.title("⚙️ Administracao")
     st.markdown("---")
-    aba = st.tabs(["👥 Setores", "📋 Tipos de Inconsistência", "🗂️ Tipos de Nota", "📧 Notificações"])
+    aba = st.tabs(["👥 Setores", "📋 Tipos de Inconsistencia", "🗂️ Tipos de Movimentacao", "📧 Notificacoes"])
 
     with aba[0]:
         st.subheader("Setores cadastrados")
@@ -15,11 +15,9 @@ def tela_admin():
             with st.expander(f"{status_icon} {nome} — {email or '—'}"):
                 c1, c2 = st.columns(2)
                 novo_email = c1.text_input("E-mail do setor", value=email or "", key=f"email_{uid}", placeholder="setor@grupolle.com.br")
-                nova_senha = c2.text_input("Nova senha", key=f"s_{uid}", placeholder="Deixe em branco para não alterar")
-                c3, c4 = st.columns(2)
-                novo_ativo = c3.selectbox("Status", [1, 0], index=0 if ativo else 1,
+                nova_senha = c2.text_input("Nova senha", key=f"s_{uid}", placeholder="Deixe em branco para nao alterar")
+                novo_ativo = st.selectbox("Status", [1, 0], index=0 if ativo else 1,
                     format_func=lambda x: "Ativo" if x == 1 else "Inativo", key=f"a_{uid}")
-                col_salvar, col_reset = c4, st.container()
                 if st.button("💾 Salvar", key=f"u_{uid}"):
                     if nova_senha.strip():
                         run_query("UPDATE usuarios SET email=%s, senha=%s, ativo=%s, primeiro_acesso=1 WHERE id=%s",
@@ -52,29 +50,35 @@ def tela_admin():
                         st.success(f"✅ Setor '{novo_nome}' criado!")
                         st.rerun()
                     except:
-                        st.error("E-mail já existe.")
+                        st.error("E-mail ja existe.")
 
     with aba[1]:
-        st.subheader("Gerenciar Tipos de Inconsistência")
+        st.subheader("Gerenciar Tipos de Inconsistencia")
+        st.markdown("Edite, adicione ou remova os tipos. Clique em **Salvar** quando terminar.")
         st.markdown("---")
+
         if "lista_tipos" not in st.session_state or st.session_state.get("reload_tipos", True):
             tipos_db = run_query("SELECT id, nome FROM tipos_inconsistencia WHERE ativo=1 ORDER BY nome", fetch=True)
             st.session_state.lista_tipos = [{"id": t[0], "nome": t[1]} for t in tipos_db]
             st.session_state.reload_tipos = False
+
         indices_remover = []
         for i, item in enumerate(st.session_state.lista_tipos):
             c1, c2 = st.columns([5, 1])
             with c1:
                 chave = str(item.get("id", "novo"))
-                novo_nome = st.text_input(f"Tipo {i+1}", value=item["nome"], key=f"tipo_edit_{i}_{chave}", label_visibility="collapsed")
+                novo_nome = st.text_input(f"Tipo {i+1}", value=item["nome"],
+                    key=f"tipo_edit_{i}_{chave}", label_visibility="collapsed")
                 st.session_state.lista_tipos[i]["nome"] = novo_nome
             with c2:
                 if st.button("X", key=f"rem_{i}_{chave}", help="Remover"):
                     indices_remover.append(i)
+
         if indices_remover:
             for idx in sorted(indices_remover, reverse=True):
                 st.session_state.lista_tipos.pop(idx)
             st.rerun()
+
         st.markdown("---")
         col_add, col_save = st.columns(2)
         with col_add:
@@ -84,8 +88,9 @@ def tela_admin():
         with col_save:
             if st.button("Salvar alteracoes", use_container_width=True, type="primary"):
                 st.session_state.confirmar_save_tipos = True
+
         if st.session_state.get("confirmar_save_tipos"):
-            st.warning("Tem certeza?")
+            st.warning("Tem certeza que deseja salvar?")
             cc1, cc2 = st.columns(2)
             with cc1:
                 if st.button("Sim, salvar", use_container_width=True, key="confirmar_sim"):
@@ -94,13 +99,16 @@ def tela_admin():
                         nome_item = item["nome"].strip()
                         if not nome_item: continue
                         if item["id"]:
-                            run_query("UPDATE tipos_inconsistencia SET nome=%s, ativo=1 WHERE id=%s", (nome_item, item["id"]))
+                            run_query("UPDATE tipos_inconsistencia SET nome=%s, ativo=1 WHERE id=%s",
+                                      (nome_item, item["id"]))
                         else:
-                            run_query("INSERT INTO tipos_inconsistencia (nome,ativo) VALUES (%s,1) ON CONFLICT (nome) DO UPDATE SET ativo=1", (nome_item,))
+                            run_query("INSERT INTO tipos_inconsistencia (nome,ativo) VALUES (%s,1) ON CONFLICT (nome) DO UPDATE SET ativo=1",
+                                      (nome_item,))
                     st.session_state.confirmar_save_tipos = False
                     st.session_state.reload_tipos = True
                     st.cache_data.clear()
-                    st.success("Tipos salvos!")
+                    st.cache_resource.clear()
+                    st.success("✅ Tipos salvos!")
                     st.rerun()
             with cc2:
                 if st.button("Cancelar", use_container_width=True, key="confirmar_nao"):
@@ -109,37 +117,44 @@ def tela_admin():
                     st.rerun()
 
     with aba[2]:
-        st.subheader("Gerenciar Tipos de Nota")
+        st.subheader("Gerenciar Tipos de Movimentacao")
+        st.markdown("Edite, adicione ou remova os tipos de movimentacao.")
         st.markdown("---")
+
         if "lista_tipos_nota" not in st.session_state or st.session_state.get("reload_tipos_nota", True):
             tipos_nota_db = run_query("SELECT id, nome FROM tipos_nota WHERE ativo=1 ORDER BY nome", fetch=True)
             st.session_state.lista_tipos_nota = [{"id": t[0], "nome": t[1]} for t in tipos_nota_db]
             st.session_state.reload_tipos_nota = False
+
         indices_remover_nota = []
         for i, item in enumerate(st.session_state.lista_tipos_nota):
             c1, c2 = st.columns([5, 1])
             with c1:
                 chave = str(item.get("id", "novo"))
-                novo_nome = st.text_input(f"Tipo Nota {i+1}", value=item["nome"], key=f"nota_edit_{i}_{chave}", label_visibility="collapsed")
+                novo_nome = st.text_input(f"Tipo {i+1}", value=item["nome"],
+                    key=f"nota_edit_{i}_{chave}", label_visibility="collapsed")
                 st.session_state.lista_tipos_nota[i]["nome"] = novo_nome
             with c2:
                 if st.button("X", key=f"rem_nota_{i}_{chave}", help="Remover"):
                     indices_remover_nota.append(i)
+
         if indices_remover_nota:
             for idx in sorted(indices_remover_nota, reverse=True):
                 st.session_state.lista_tipos_nota.pop(idx)
             st.rerun()
+
         st.markdown("---")
         col_add2, col_save2 = st.columns(2)
         with col_add2:
-            if st.button("Adicionar novo tipo de nota", use_container_width=True):
+            if st.button("Adicionar novo tipo", use_container_width=True, key="add_nota"):
                 st.session_state.lista_tipos_nota.append({"id": None, "nome": ""})
                 st.rerun()
         with col_save2:
-            if st.button("Salvar tipos de nota", use_container_width=True, type="primary"):
+            if st.button("Salvar tipos de movimentacao", use_container_width=True, type="primary"):
                 st.session_state.confirmar_save_nota = True
+
         if st.session_state.get("confirmar_save_nota"):
-            st.warning("Tem certeza?")
+            st.warning("Tem certeza que deseja salvar?")
             cc1, cc2 = st.columns(2)
             with cc1:
                 if st.button("Sim, salvar", use_container_width=True, key="confirmar_sim_nota"):
@@ -148,13 +163,16 @@ def tela_admin():
                         nome_item = item["nome"].strip()
                         if not nome_item: continue
                         if item["id"]:
-                            run_query("UPDATE tipos_nota SET nome=%s, ativo=1 WHERE id=%s", (nome_item, item["id"]))
+                            run_query("UPDATE tipos_nota SET nome=%s, ativo=1 WHERE id=%s",
+                                      (nome_item, item["id"]))
                         else:
-                            run_query("INSERT INTO tipos_nota (nome,ativo) VALUES (%s,1) ON CONFLICT (nome) DO UPDATE SET ativo=1", (nome_item,))
+                            run_query("INSERT INTO tipos_nota (nome,ativo) VALUES (%s,1) ON CONFLICT (nome) DO UPDATE SET ativo=1",
+                                      (nome_item,))
                     st.session_state.confirmar_save_nota = False
                     st.session_state.reload_tipos_nota = True
                     st.cache_data.clear()
-                    st.success("Tipos de nota salvos!")
+                    st.cache_resource.clear()
+                    st.success("✅ Tipos de movimentacao salvos!")
                     st.rerun()
             with cc2:
                 if st.button("Cancelar", use_container_width=True, key="confirmar_nao_nota"):
@@ -163,17 +181,17 @@ def tela_admin():
                     st.rerun()
 
     with aba[3]:
-        st.subheader("📧 Histórico de Notificações")
+        st.subheader("📧 Historico de Notificacoes")
         st.markdown("---")
         c1, c2 = st.columns(2)
-        filtro_tipo = c1.selectbox("Tipo", ["Todos","novo_chamado","atualizacao_status","nova_mensagem","conclusao"])
+        filtro_tipo = c1.selectbox("Tipo", ["Todos","novo_chamado","atualizacao_status","nova_mensagem","conclusao","solicitacao_tratativa"])
         filtro_sucesso = c2.selectbox("Status envio", ["Todos","Enviado","Falhou"])
 
-        query = "SELECT protocolo, destinatario, assunto, tipo, enviado_em, sucesso FROM notificacoes ORDER BY enviado_em DESC LIMIT 100"
-        notifs = run_query(query, fetch=True)
+        notifs = run_query("""SELECT protocolo, destinatario, assunto, tipo, enviado_em, sucesso
+            FROM notificacoes ORDER BY enviado_em DESC LIMIT 100""", fetch=True)
 
         if not notifs:
-            st.info("Nenhuma notificação registrada ainda.")
+            st.info("Nenhuma notificacao registrada ainda.")
         else:
             for protocolo, destinatario, assunto, tipo, enviado_em, sucesso in notifs:
                 if filtro_tipo != "Todos" and tipo != filtro_tipo: continue
@@ -187,6 +205,7 @@ def tela_admin():
                         <span style='font-size:13px;font-weight:600;color:#041747;'>{icone} {assunto}</span>
                         <span style='font-size:11px;color:#999;'>{enviado_em}</span>
                     </div>
-                    <p style='font-size:12px;color:#666;margin:4px 0 0;'>Para: {destinatario} · Tipo: {tipo} · Protocolo: {protocolo or "—"}</p>
+                    <p style='font-size:12px;color:#666;margin:4px 0 0;'>
+                    Para: {destinatario} · Tipo: {tipo} · Protocolo: {protocolo or "—"}</p>
                 </div>
                 """, unsafe_allow_html=True)
