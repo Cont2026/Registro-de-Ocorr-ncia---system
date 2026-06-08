@@ -1,6 +1,6 @@
 import streamlit as st
 from database.connection import run_query
-from datetime import datetime
+from datetime import datetime, date
 from zoneinfo import ZoneInfo
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
@@ -9,15 +9,40 @@ TIPOS = [
     "Fechamento Parcial 1",
     "Fechamento Parcial 2",
     "Fechamento Parcial 3",
-    "Fechamento Consolidado Corporativo"
+    "Fechamento Parcial 4"
 ]
 
 CORES = {
-    "Fechamento Parcial 1":               {"borda":"#3B82F6","bg":"#EFF6FF","texto":"#1D4ED8"},
-    "Fechamento Parcial 2":               {"borda":"#EAB308","bg":"#FEFCE8","texto":"#854D0E"},
-    "Fechamento Parcial 3":               {"borda":"#F97316","bg":"#FFF7ED","texto":"#9A3412"},
-    "Fechamento Consolidado Corporativo": {"borda":"#EF4444","bg":"#FEF2F2","texto":"#991B1B"},
+    "Fechamento Parcial 1": {"borda":"#3B82F6","bg":"#EFF6FF","texto":"#1D4ED8"},
+    "Fechamento Parcial 2": {"borda":"#EAB308","bg":"#FEFCE8","texto":"#854D0E"},
+    "Fechamento Parcial 3": {"borda":"#F97316","bg":"#FFF7ED","texto":"#9A3412"},
+    "Fechamento Parcial 4": {"borda":"#EF4444","bg":"#FEF2F2","texto":"#991B1B"},
 }
+
+COR_CONSOLIDACAO = {"borda":"#0F8C3B","bg":"#F0FDF4","texto":"#166534"}
+
+# Datas da Consolidacao (1o, 2o e 3o dia util do mes seguinte), sem horario.
+# Chave = mes da competencia (1=Janeiro ... 12=Dezembro)
+CONSOLIDACAO = {
+    1:  [date(2026, 2, 2),  date(2026, 2, 3),  date(2026, 2, 4)],
+    2:  [date(2026, 3, 2),  date(2026, 3, 3),  date(2026, 3, 4)],
+    3:  [date(2026, 4, 1),  date(2026, 4, 2),  date(2026, 4, 6)],
+    4:  [date(2026, 5, 4),  date(2026, 5, 5),  date(2026, 5, 6)],
+    5:  [date(2026, 6, 1),  date(2026, 6, 2),  date(2026, 6, 3)],
+    6:  [date(2026, 7, 1),  date(2026, 7, 2),  date(2026, 7, 3)],
+    7:  [date(2026, 8, 3),  date(2026, 8, 4),  date(2026, 8, 5)],
+    8:  [date(2026, 9, 1),  date(2026, 9, 2),  date(2026, 9, 3)],
+    9:  [date(2026, 10, 1), date(2026, 10, 2), date(2026, 10, 5)],
+    10: [date(2026, 11, 3), date(2026, 11, 4), date(2026, 11, 5)],
+    11: [date(2026, 12, 1), date(2026, 12, 2), date(2026, 12, 3)],
+    12: [date(2027, 1, 4),  date(2027, 1, 5),  date(2027, 1, 6)],
+}
+
+def normaliza_tipo(t):
+    # Compatibilidade: trata o nome antigo como Parcial 4
+    if t == "Fechamento Consolidado Corporativo":
+        return "Fechamento Parcial 4"
+    return t
 
 def fmt(d):
     if not d: return "—"
@@ -44,6 +69,7 @@ def buscar_fechamentos(cid):
             WHEN 'Fechamento Parcial 1' THEN 1
             WHEN 'Fechamento Parcial 2' THEN 2
             WHEN 'Fechamento Parcial 3' THEN 3
+            WHEN 'Fechamento Parcial 4' THEN 4
             WHEN 'Fechamento Consolidado Corporativo' THEN 4
         END
     """, (cid,), fetch=True)
@@ -57,6 +83,7 @@ def buscar_todos_fechamentos():
             WHEN 'Fechamento Parcial 1' THEN 1
             WHEN 'Fechamento Parcial 2' THEN 2
             WHEN 'Fechamento Parcial 3' THEN 3
+            WHEN 'Fechamento Parcial 4' THEN 4
             WHEN 'Fechamento Consolidado Corporativo' THEN 4
         END
     """, fetch=True)
@@ -84,7 +111,7 @@ def card_grande(tipo, f):
 
 def card_pequeno(tipo, f):
     cor = CORES[tipo]
-    label = tipo.replace("Fechamento ","").replace("Consolidado Corporativo","Consolidado")
+    label = tipo.replace("Fechamento ","")
     if f:
         fid,t,df,hf,pi,pf,obs = f
         ic,_,_ = status(df)
@@ -102,9 +129,31 @@ def card_pequeno(tipo, f):
         <p style='font-size:10px;color:#666;margin:2px 0 0;'>📅 {per}</p>
     </div>"""
 
+def card_consolidacao(mes, grande=True):
+    cor = COR_CONSOLIDACAO
+    datas = CONSOLIDACAO.get(mes, [])
+    pad = 18 if grande else 12
+    fs_label = 12 if grande else 10
+    fs_data = 14 if grande else 12
+    if datas:
+        chips = ""
+        for d in datas:
+            ic,_,_ = status(d)
+            chips += f"""<span style='display:inline-block;background:white;border:1.5px solid {cor["borda"]};
+            border-radius:8px;padding:6px 12px;margin:4px;font-size:{fs_data}px;font-weight:700;color:#041747;'>{ic} {fmt(d)}</span>"""
+    else:
+        chips = "<span style='color:#999;font-size:13px;'>Sem datas definidas</span>"
+    return f"""
+    <div style='border:2px solid {cor["borda"]};border-radius:14px;padding:{pad}px;
+    background:{cor["bg"]};text-align:center;margin-top:14px;'>
+        <p style='font-size:{fs_label}px;color:{cor["texto"]};font-weight:700;
+        text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;'>🔒 Consolidação — 1º, 2º e 3º dia útil</p>
+        <div style='display:flex;justify-content:center;flex-wrap:wrap;'>{chips}</div>
+    </div>"""
+
 def exibir_mes(comp, todos_fechamentos, grande=True):
     cid, mes_ano, ano, mes = comp
-    fd = {f[2]:f[1:] for f in todos_fechamentos if f[0]==cid}
+    fd = {normaliza_tipo(f[2]):f[1:] for f in todos_fechamentos if f[0]==cid}
     st.markdown(f"### 📆 {mes_ano}" if grande else f"##### 📅 {mes_ano}")
     cols = st.columns(4)
     for i, tipo in enumerate(TIPOS):
@@ -112,19 +161,20 @@ def exibir_mes(comp, todos_fechamentos, grande=True):
             f = fd.get(tipo)
             html = card_grande(tipo, f) if grande else card_pequeno(tipo, f)
             st.markdown(html, unsafe_allow_html=True)
+    st.markdown(card_consolidacao(mes, grande), unsafe_allow_html=True)
 
 def exibir_anual(competencias, todos_fechamentos):
     st.markdown("#### 🗓️ Visão Anual — 2026")
     st.markdown("---")
     for comp in competencias:
         cid, mes_ano, ano, mes = comp
-        fd = {f[2]:f[1:] for f in todos_fechamentos if f[0]==cid}
-        cols = st.columns([1.2,1,1,1,1])
+        fd = {normaliza_tipo(f[2]):f[1:] for f in todos_fechamentos if f[0]==cid}
+        cols = st.columns([1.2,1,1,1,1,1])
         with cols[0]:
             st.markdown(f"**📆 {mes_ano}**")
         for i, tipo in enumerate(TIPOS):
             cor = CORES[tipo]
-            label = tipo.replace("Fechamento ","").replace("Consolidado Corporativo","Consolidado")
+            label = tipo.replace("Fechamento ","")
             with cols[i+1]:
                 f = fd.get(tipo)
                 if f:
@@ -145,6 +195,26 @@ def exibir_anual(competencias, todos_fechamentos):
                         <p style='font-size:10px;color:#999;font-weight:700;margin:0;'>{label}</p>
                         <p style='font-size:11px;color:#ccc;margin:1px 0;'>—</p>
                     </div>""", unsafe_allow_html=True)
+        cor = COR_CONSOLIDACAO
+        datas = CONSOLIDACAO.get(mes, [])
+        with cols[5]:
+            if datas:
+                linhas = "".join(
+                    f"<p style='font-size:11px;font-weight:600;color:#041747;margin:1px 0;'>{status(d)[0]} {fmt(d)}</p>"
+                    for d in datas)
+                st.markdown(f"""
+                <div style='border-left:3px solid {cor["borda"]};padding:4px 8px;
+                background:{cor["bg"]};border-radius:6px;margin-bottom:4px;'>
+                    <p style='font-size:10px;color:{cor["texto"]};font-weight:700;margin:0;'>Consolidação</p>
+                    {linhas}
+                </div>""", unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div style='border-left:3px solid #ddd;padding:4px 8px;
+                background:#f9f9f9;border-radius:6px;margin-bottom:4px;opacity:0.5;'>
+                    <p style='font-size:10px;color:#999;font-weight:700;margin:0;'>Consolidação</p>
+                    <p style='font-size:11px;color:#ccc;margin:1px 0;'>—</p>
+                </div>""", unsafe_allow_html=True)
         st.markdown("<hr style='margin:8px 0;border-color:#f0f0f0;'>", unsafe_allow_html=True)
 
 def tela_calendario():
@@ -175,10 +245,11 @@ def tela_calendario():
     if st.session_state.perfil == "contabilidade":
         st.markdown("---")
         st.subheader("⚙️ Editar Calendário")
+        st.caption("A Consolidação (1º/2º/3º dia útil) é fixa e não é editável por aqui.")
         opcoes = {c[1]: c[0] for c in competencias}
         sel = st.selectbox("Selecione o mês", list(opcoes.keys()))
         cid = opcoes[sel]
-        fd = {f[2]:f[1:] for f in todos_fechamentos if f[0]==cid}
+        fd = {normaliza_tipo(f[2]):f[1:] for f in todos_fechamentos if f[0]==cid}
 
         for tipo in TIPOS:
             cor = CORES[tipo]
@@ -195,9 +266,9 @@ def tela_calendario():
             if st.button(f"💾 Salvar {tipo}", key=f"btn_{tipo}_{cid}"):
                 if fid:
                     run_query("""
-                        UPDATE fechamentos SET data_fechamento=%s,hora_fechamento=%s,
+                        UPDATE fechamentos SET tipo=%s,data_fechamento=%s,hora_fechamento=%s,
                         periodo_inicio=%s,periodo_fim=%s,observacao=%s WHERE id=%s
-                    """, (nd or None, nh.strip() or None, ni or None, nf_val or None, no.strip() or None, fid))
+                    """, (tipo, nd or None, nh.strip() or None, ni or None, nf_val or None, no.strip() or None, fid))
                 else:
                     run_query("""
                         INSERT INTO fechamentos (competencia_id,tipo,data_fechamento,hora_fechamento,periodo_inicio,periodo_fim,observacao)
