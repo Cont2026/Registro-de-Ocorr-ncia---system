@@ -78,6 +78,11 @@ def get_admin():
     from modules import admin
     return admin
 
+@st.cache_resource
+def get_tratativa():
+    from modules import tratativa
+    return tratativa
+
 @st.cache_data(ttl=300, show_spinner=False)
 def buscar_usuario(email, senha):
     rows = run_query(
