@@ -4,7 +4,7 @@ import calendar
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from database.connection import run_query
-from modules.email_service import email_novo_chamado, email_atualizacao_chamado, email_nova_mensagem
+from modules.email_service import email_novo_chamado, email_atualizacao_chamado, email_conclusao_chamado, email_nova_mensagem
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
 
@@ -15,9 +15,9 @@ def verificar_bloqueio(data_nota):
     m, a, ma, aa = data_nota.month, data_nota.year, hoje.month, hoje.year
     if a == aa and m == ma: return False, ""
     if a < aa or (a == aa and m < ma - 1):
-        return True, "⛔ O prazo para solicitações da competência selecionada foi encerrado conforme regra de fechamento contábil."
+        return True, "⛔ O prazo para solicitações da competência selecionada foi encerrado."
     if agora > datetime(aa, ma, calendar.monthrange(aa, ma)[1], 17, 48, 0, tzinfo=BRASILIA):
-        return True, "⛔ O prazo para solicitações da competência selecionada foi encerrado conforme regra de fechamento contábil."
+        return True, "⛔ O prazo para solicitações da competência selecionada foi encerrado."
     return False, ""
 
 def converter_valor(valor):
@@ -53,7 +53,7 @@ def buscar_email_setor(setor_nome):
 def carregar_mensagens(protocolo):
     return run_query("SELECT autor, perfil, mensagem, enviado_em FROM mensagens WHERE chamado_protocolo=%s ORDER BY enviado_em ASC", (protocolo,), fetch=True)
 
-def enviar_mensagem(protocolo, autor, perfil, mensagem):
+def enviar_mensagem_db(protocolo, autor, perfil, mensagem):
     run_query("INSERT INTO mensagens (chamado_protocolo,autor,perfil,mensagem,enviado_em) VALUES (%s,%s,%s,%s,%s)",
               (protocolo, autor, perfil, mensagem, datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S")))
 
@@ -84,8 +84,7 @@ def exibir_chat(protocolo, setor_chamado):
         nova_msg = st.text_area("Nova mensagem", placeholder="Digite sua mensagem...", height=80, label_visibility="collapsed")
         if st.form_submit_button("📨 Enviar", use_container_width=True):
             if nova_msg.strip():
-                enviar_mensagem(protocolo, st.session_state.usuario, st.session_state.perfil, nova_msg.strip())
-                # Notifica o outro lado
+                enviar_mensagem_db(protocolo, st.session_state.usuario, st.session_state.perfil, nova_msg.strip())
                 try:
                     if st.session_state.perfil == "contabilidade":
                         email_dest = buscar_email_setor(setor_chamado)
@@ -106,20 +105,15 @@ def tela_novo_chamado():
     st.markdown("---")
 
     tipos = carregar_tipos()
-    tipos_movimentacao = ["Compra", "Venda"]
 
     st.markdown("#### 🗂️ Tipo de Movimentação *")
     tipo_nota = st.session_state.get("sel_tipo_nota", None)
-    cols_nota = st.columns(2)
-    for i, op in enumerate(tipos_movimentacao):
-        with cols_nota[i]:
-            ativo = tipo_nota == op
-            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_tipo_nota_{i}",
-                use_container_width=True, type="primary" if ativo else "secondary"):
-                st.session_state["sel_tipo_nota"] = op
-                st.rerun()
+    for i, op in enumerate(["Compra", "Venda"]):
+        ativo = tipo_nota == op
+        if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_tipo_nota_{i}", use_container_width=True, type="primary" if ativo else "secondary"):
+            st.session_state["sel_tipo_nota"] = op
+            st.rerun()
     tipo_nota = st.session_state.get("sel_tipo_nota", None)
-
     if not tipo_nota:
         st.info("Selecione o tipo de movimentação para continuar.")
         return
@@ -132,82 +126,67 @@ def tela_novo_chamado():
         data_entrada = None
 
     st.markdown("---")
-
     st.markdown("#### 📋 Abertura de Período / Descontabilização *")
     tipos_com_outros = tipos + ["Outros"]
     tipo_sel = st.session_state.get("sel_tipo", None)
-    n_cols = min(len(tipos_com_outros), 4)
-    cols_tipo = st.columns(n_cols)
+    cols_tipo = st.columns(min(len(tipos_com_outros), 4))
     for i, op in enumerate(tipos_com_outros):
-        with cols_tipo[i % n_cols]:
+        with cols_tipo[i % len(cols_tipo)]:
             ativo = tipo_sel == op
-            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_tipo_{i}",
-                use_container_width=True, type="primary" if ativo else "secondary"):
+            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_tipo_{i}", use_container_width=True, type="primary" if ativo else "secondary"):
                 st.session_state["sel_tipo"] = op
                 st.rerun()
     tipo = st.session_state.get("sel_tipo", None)
-
     tipo_outros_desc = ""
     if tipo == "Outros":
-        tipo_outros_desc = st.text_area("📝 Descreva a solicitação *",
-            placeholder="Descreva detalhadamente...", key="outros_desc")
+        tipo_outros_desc = st.text_area("📝 Descreva a solicitação *", placeholder="Descreva detalhadamente...", key="outros_desc")
 
     st.markdown("---")
-
     st.markdown("#### 🏢 Empresa *")
-    empresas = ["1", "2", "6", "13", "14"]
     empresa_sel = st.session_state.get("sel_empresa", None)
-    cols_emp = st.columns(len(empresas))
-    for i, op in enumerate(empresas):
+    cols_emp = st.columns(5)
+    for i, op in enumerate(["1","2","6","13","14"]):
         with cols_emp[i]:
             ativo = empresa_sel == op
-            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_empresa_{i}",
-                use_container_width=True, type="primary" if ativo else "secondary"):
+            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_empresa_{i}", use_container_width=True, type="primary" if ativo else "secondary"):
                 st.session_state["sel_empresa"] = op
                 st.rerun()
     empresa = st.session_state.get("sel_empresa", None)
 
     st.markdown("#### 🚦 Prioridade *")
-    prioridades = ["Normal", "Urgente"]
     prio_sel = st.session_state.get("sel_prioridade", None)
     cols_prio = st.columns(2)
-    for i, op in enumerate(prioridades):
+    for i, op in enumerate(["Normal","Urgente"]):
         with cols_prio[i]:
             ativo = prio_sel == op
-            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_prio_{i}",
-                use_container_width=True, type="primary" if ativo else "secondary"):
+            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_prio_{i}", use_container_width=True, type="primary" if ativo else "secondary"):
                 st.session_state["sel_prioridade"] = op
                 st.rerun()
     prioridade = st.session_state.get("sel_prioridade", None)
 
     st.markdown("#### 🔄 NF retornará ao sistema? *")
-    nf_opcoes = ["Sim", "Não"]
     nf_sel = st.session_state.get("sel_nf", None)
     cols_nf = st.columns(2)
-    for i, op in enumerate(nf_opcoes):
+    for i, op in enumerate(["Sim","Não"]):
         with cols_nf[i]:
             ativo = nf_sel == op
-            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_nf_{i}",
-                use_container_width=True, type="primary" if ativo else "secondary"):
+            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_nf_{i}", use_container_width=True, type="primary" if ativo else "secondary"):
                 st.session_state["sel_nf"] = op
                 st.rerun()
     nf_retorna = st.session_state.get("sel_nf", None)
 
     st.markdown("#### 💰 Financeiro Baixado? *")
-    fin_opcoes = ["Sim", "Não"]
     fin_sel = st.session_state.get("sel_fin", None)
     cols_fin = st.columns(2)
-    for i, op in enumerate(fin_opcoes):
+    for i, op in enumerate(["Sim","Não"]):
         with cols_fin[i]:
             ativo = fin_sel == op
-            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_fin_{i}",
-                use_container_width=True, type="primary" if ativo else "secondary"):
+            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_fin_{i}", use_container_width=True, type="primary" if ativo else "secondary"):
                 st.session_state["sel_fin"] = op
                 st.rerun()
     fin_baixado = st.session_state.get("sel_fin", None)
 
     st.markdown("---")
-
     with st.form("form_chamado", clear_on_submit=True):
         col1, col2 = st.columns(2)
         with col1:
@@ -222,14 +201,14 @@ def tela_novo_chamado():
 
     if enviar:
         erros = []
-        if not tipo: erros.append("Tipo de Inconsistência")
-        if tipo == "Outros" and not tipo_outros_desc.strip(): erros.append("Descrição da solicitação")
+        if not tipo: erros.append("Tipo")
+        if tipo == "Outros" and not tipo_outros_desc.strip(): erros.append("Descrição")
         if not empresa: erros.append("Empresa")
         if not prioridade: erros.append("Prioridade")
-        if not nf_retorna: erros.append("NF retornará ao sistema")
+        if not nf_retorna: erros.append("NF retornará")
         if not fin_baixado: erros.append("Financeiro Baixado")
-        if not solicitante.strip(): erros.append("Nome do Solicitante")
-        if not nome_parceiro.strip(): erros.append("Nome do Parceiro")
+        if not solicitante.strip(): erros.append("Solicitante")
+        if not nome_parceiro.strip(): erros.append("Parceiro")
         if not numero_nota.strip(): erros.append("Número da Nota")
         if not valor.strip(): erros.append("Valor")
         if tipo_nota == "Compra" and not data_entrada: erros.append("Data da Nota")
@@ -253,7 +232,7 @@ def tela_novo_chamado():
         try:
             valor_float = converter_valor(valor)
         except:
-            st.error("⚠️ Valor inválido. Exemplos: 1500 / 1500,00 / 1.500,00")
+            st.error("⚠️ Valor inválido.")
             return
 
         tipo_final = f"Outros: {tipo_outros_desc.strip()}" if tipo == "Outros" else tipo
@@ -270,13 +249,11 @@ def tela_novo_chamado():
              valor_float, observacao.strip(), arquivo_nome, "Aberto",
              datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), fin_baixado))
 
-        # Notifica a Contabilidade
         try:
             email_cont = buscar_email_contabilidade()
             if email_cont:
                 email_novo_chamado(email_cont, protocolo, st.session_state.setor,
-                    tipo_final, prioridade, nome_parceiro.strip(),
-                    numero_nota.strip(), solicitante.strip())
+                    tipo_final, prioridade, nome_parceiro.strip(), numero_nota.strip(), solicitante.strip())
         except:
             pass
 
@@ -287,27 +264,61 @@ def tela_novo_chamado():
         st.success(f"✅ Chamado registrado! Protocolo: **{protocolo}**")
         st.balloons()
 
-def tela_meus_chamados():
+def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, aberto_em, solicitante, fin_baixado, setor, eh_contabilidade=False, protocolo_aberto=None):
+    status_cor = {"Aberto":"🔴","Em andamento":"🟡","Resolvido":"🟢","Cancelado":"⚫"}
+    expanded = protocolo == protocolo_aberto
+    label = f"{status_cor.get(status,'⚪')} {protocolo} — {parceiro} | NF: {nf}"
+    if eh_contabilidade:
+        label += f" | {setor}"
+    label += f" | {status}"
+
+    with st.expander(label, expanded=expanded):
+        c1,c2,c3,c4 = st.columns(4)
+        c1.markdown(f"**Empresa:** {empresa}")
+        c2.markdown(f"**Tipo:** {tipo}")
+        c3.markdown(f"**Prioridade:** {prioridade}")
+        c4.markdown(f"**Solicitante:** {solicitante or '—'}")
+        c1.markdown(f"**Fin. Baixado:** {fin_baixado or '—'}")
+        st.markdown(f"**Aberto em:** {aberto_em}")
+
+        if eh_contabilidade:
+            st.markdown("---")
+            novo_status = st.selectbox("Atualizar status", ["Aberto","Em andamento","Resolvido","Cancelado"],
+                index=["Aberto","Em andamento","Resolvido","Cancelado"].index(status), key=f"s_{protocolo}")
+            if st.button("💾 Salvar status", key=f"b_{protocolo}"):
+                agora = datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S")
+                run_query("""UPDATE chamados SET status=%s, atendido_em=COALESCE(atendido_em,%s),
+                    resolvido_em=CASE WHEN %s='Resolvido' THEN %s ELSE resolvido_em END WHERE protocolo=%s""",
+                    (novo_status, agora, novo_status, agora, protocolo))
+                try:
+                    email_dest = buscar_email_setor(setor)
+                    if novo_status == "Resolvido":
+                        email_cont = buscar_email_contabilidade()
+                        email_conclusao_chamado(email_cont, email_dest, protocolo, tipo, agora)
+                    elif email_dest:
+                        email_atualizacao_chamado(email_dest, protocolo, novo_status, setor)
+                except:
+                    pass
+                st.cache_data.clear()
+                st.success("✅ Atualizado!")
+                st.rerun()
+
+        st.markdown("---")
+        exibir_chat(protocolo, setor)
+
+def tela_meus_chamados(protocolo_aberto=None):
     st.title("📋 Meus Chamados")
     st.markdown("---")
     rows = carregar_meus_chamados(st.session_state.setor)
     if not rows:
         st.info("Nenhum chamado registrado ainda.")
         return
-    status_cor = {"Aberto":"🔴","Em andamento":"🟡","Resolvido":"🟢","Cancelado":"⚫"}
     for protocolo, tipo, empresa, status, prioridade, parceiro, nf, aberto_em, solicitante, fin_baixado in rows:
-        with st.expander(f"{status_cor.get(status,'⚪')} {protocolo} — {parceiro} | NF: {nf} | {status}"):
-            c1,c2,c3,c4 = st.columns(4)
-            c1.markdown(f"**Empresa:** {empresa}")
-            c2.markdown(f"**Tipo:** {tipo}")
-            c3.markdown(f"**Prioridade:** {prioridade}")
-            c4.markdown(f"**Solicitante:** {solicitante or '—'}")
-            c1.markdown(f"**Fin. Baixado:** {fin_baixado or '—'}")
-            st.markdown(f"**Aberto em:** {aberto_em}")
-            st.markdown("---")
-            exibir_chat(protocolo, st.session_state.setor)
+        exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf,
+                       aberto_em, solicitante, fin_baixado, st.session_state.setor,
+                       eh_contabilidade=False, protocolo_aberto=protocolo_aberto)
 
-def tela_todos_chamados():
+def tela_todos_chamados(protocolo_aberto=None):
     st.title("📋 Todos os Chamados")
     st.markdown("---")
     rows = carregar_todos_chamados()
@@ -318,36 +329,10 @@ def tela_todos_chamados():
     filtro_status = c1.selectbox("Status", ["Todos","Aberto","Em andamento","Resolvido","Cancelado"])
     filtro_empresa = c2.selectbox("Empresa", ["Todas","1","2","6","13","14"])
     filtro_setor = c3.text_input("Setor")
-    status_cor = {"Aberto":"🔴","Em andamento":"🟡","Resolvido":"🟢","Cancelado":"⚫"}
     for protocolo, setor, tipo, empresa, status, prioridade, parceiro, nf, aberto_em, solicitante, fin_baixado in rows:
         if filtro_status != "Todos" and status != filtro_status: continue
         if filtro_empresa != "Todas" and empresa != filtro_empresa: continue
         if filtro_setor and filtro_setor.lower() not in setor.lower(): continue
-        with st.expander(f"{status_cor.get(status,'⚪')} {protocolo} — {parceiro} | NF: {nf} | {setor} | {status}"):
-            c1,c2,c3,c4 = st.columns(4)
-            c1.markdown(f"**Empresa:** {empresa}")
-            c2.markdown(f"**Tipo:** {tipo}")
-            c3.markdown(f"**Prioridade:** {prioridade}")
-            c4.markdown(f"**Solicitante:** {solicitante or '—'}")
-            c1.markdown(f"**Fin. Baixado:** {fin_baixado or '—'}")
-            st.markdown(f"**Aberto em:** {aberto_em}")
-            st.markdown("---")
-            novo_status = st.selectbox("Atualizar status", ["Aberto","Em andamento","Resolvido","Cancelado"],
-                index=["Aberto","Em andamento","Resolvido","Cancelado"].index(status), key=f"s_{protocolo}")
-            if st.button("💾 Salvar status", key=f"b_{protocolo}"):
-                agora = datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S")
-                run_query("""UPDATE chamados SET status=%s, atendido_em=COALESCE(atendido_em,%s),
-                    resolvido_em=CASE WHEN %s='Resolvido' THEN %s ELSE resolvido_em END WHERE protocolo=%s""",
-                    (novo_status, agora, novo_status, agora, protocolo))
-                # Notifica o setor
-                try:
-                    email_dest = buscar_email_setor(setor)
-                    if email_dest:
-                        email_atualizacao_chamado(email_dest, protocolo, novo_status)
-                except:
-                    pass
-                st.cache_data.clear()
-                st.success("✅ Atualizado!")
-                st.rerun()
-            st.markdown("---")
-            exibir_chat(protocolo, setor)
+        exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf,
+                       aberto_em, solicitante, fin_baixado, setor,
+                       eh_contabilidade=True, protocolo_aberto=protocolo_aberto)
