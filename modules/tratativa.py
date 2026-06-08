@@ -87,15 +87,20 @@ def tela_tratativa():
     st.markdown("---")
 
     st.markdown("#### 🗂️ Tipo de Movimentacao")
+    tipos_nota_rows = run_query("SELECT nome FROM tipos_nota WHERE ativo=1 ORDER BY nome", fetch=True)
+    tipos_movimentacao = [t[0] for t in tipos_nota_rows] if tipos_nota_rows else []
     tipo_nota = st.session_state.get("trat_tipo_nota", None)
-    cols_nota = st.columns(2)
-    for i, op in enumerate(["Compra", "Venda"]):
-        with cols_nota[i]:
-            ativo = tipo_nota == op
-            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"trat_nota_{i}",
-                use_container_width=True, type="primary" if ativo else "secondary"):
-                st.session_state["trat_tipo_nota"] = op
-                st.rerun()
+    if not tipos_movimentacao:
+        st.warning("⚠️ Nenhum tipo de movimentacao cadastrado. Cadastre no painel Admin.")
+    else:
+        cols_nota = st.columns(min(len(tipos_movimentacao), 4))
+        for i, op in enumerate(tipos_movimentacao):
+            with cols_nota[i % len(cols_nota)]:
+                ativo = tipo_nota == op
+                if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"trat_nota_{i}",
+                    use_container_width=True, type="primary" if ativo else "secondary"):
+                    st.session_state["trat_tipo_nota"] = op
+                    st.rerun()
     tipo_nota = st.session_state.get("trat_tipo_nota", None)
 
     st.markdown("#### 🏢 Empresa")
