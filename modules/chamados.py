@@ -30,6 +30,10 @@ def converter_valor(valor):
 def carregar_tipos():
     return [r[0] for r in run_query("SELECT nome FROM tipos_inconsistencia WHERE ativo=1 ORDER BY nome", fetch=True)]
 
+@st.cache_data(ttl=300)
+def carregar_tipos_nota():
+    return [r[0] for r in run_query("SELECT nome FROM tipos_nota WHERE ativo=1 ORDER BY nome", fetch=True)]
+
 @st.cache_data(ttl=60)
 def carregar_meus_chamados(setor):
     return run_query("""SELECT protocolo, tipo_inconsistencia, empresa, status, prioridade,
@@ -107,18 +111,25 @@ def tela_novo_chamado():
     tipos = carregar_tipos()
 
     st.markdown("#### 🗂️ Tipo de Movimentação *")
+    tipos_movimentacao = carregar_tipos_nota()
+    if not tipos_movimentacao:
+        st.warning("⚠️ Nenhum tipo de movimentação cadastrado. Solicite o cadastro no painel Admin.")
+        return
     tipo_nota = st.session_state.get("sel_tipo_nota", None)
-    for i, op in enumerate(["Compra", "Venda"]):
-        ativo = tipo_nota == op
-        if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_tipo_nota_{i}", use_container_width=True, type="primary" if ativo else "secondary"):
-            st.session_state["sel_tipo_nota"] = op
-            st.rerun()
+    cols_mov = st.columns(min(len(tipos_movimentacao), 4))
+    for i, op in enumerate(tipos_movimentacao):
+        with cols_mov[i % len(cols_mov)]:
+            ativo = tipo_nota == op
+            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_tipo_nota_{i}", use_container_width=True, type="primary" if ativo else "secondary"):
+                st.session_state["sel_tipo_nota"] = op
+                st.rerun()
     tipo_nota = st.session_state.get("sel_tipo_nota", None)
     if not tipo_nota:
         st.info("Selecione o tipo de movimentação para continuar.")
         return
 
-    if tipo_nota == "Compra":
+    eh_compra = "compra" in tipo_nota.lower()
+    if eh_compra:
         data_entrada = st.date_input("📥 Data da Nota *", value=None, key="data_entrada")
         data_negociacao = None
     else:
@@ -211,13 +222,13 @@ def tela_novo_chamado():
         if not nome_parceiro.strip(): erros.append("Parceiro")
         if not numero_nota.strip(): erros.append("Número da Nota")
         if not valor.strip(): erros.append("Valor")
-        if tipo_nota == "Compra" and not data_entrada: erros.append("Data da Nota")
-        if tipo_nota != "Compra" and not data_negociacao: erros.append("Data de Negociação")
+        if eh_compra and not data_entrada: erros.append("Data da Nota")
+        if not eh_compra and not data_negociacao: erros.append("Data de Negociação")
         if erros:
             st.error(f"⚠️ Preencha: {', '.join(erros)}")
             return
 
-        bloqueado, msg = verificar_bloqueio(data_entrada if tipo_nota == "Compra" else data_negociacao)
+        bloqueado, msg = verificar_bloqueio(data_entrada if eh_compra else data_negociacao)
         if bloqueado:
             st.error(msg)
             return
