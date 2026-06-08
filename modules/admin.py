@@ -4,111 +4,77 @@ from database.connection import run_query
 def tela_admin():
     st.title("⚙️ Administração")
     st.markdown("---")
-    aba = st.tabs(["👥 Usuários e Setores", "📋 Tipos de Inconsistência", "🗂️ Tipos de Nota"])
+    aba = st.tabs(["👥 Setores", "📋 Tipos de Inconsistência", "🗂️ Tipos de Nota", "📧 Notificações"])
 
     with aba[0]:
-        st.subheader("Usuários cadastrados")
-        usuarios = run_query("SELECT id, nome, email, perfil, setor_nome, ativo FROM usuarios ORDER BY perfil, nome", fetch=True)
+        st.subheader("Setores cadastrados")
+        usuarios = run_query("SELECT id, nome, email, setor_nome, ativo FROM usuarios WHERE perfil='setor' ORDER BY nome", fetch=True)
 
-        for uid, nome, email, perfil, setor_nome, ativo in usuarios:
+        for uid, nome, email, setor_nome, ativo in usuarios:
             status_icon = "🟢" if ativo else "🔴"
-            perfil_icon = "👑" if perfil == "contabilidade" else "🏢"
-            label = f"{status_icon} {perfil_icon} {nome}"
-            if setor_nome: label += f" — {setor_nome}"
-            if email: label += f" ({email})"
-            with st.expander(label):
+            with st.expander(f"{status_icon} {nome} — {email or '—'}"):
                 c1, c2 = st.columns(2)
-                nova_senha = c1.text_input("Nova senha do setor", key=f"s_{uid}", placeholder="Deixe em branco para não alterar")
-                novo_ativo = c2.selectbox("Status", [1, 0], index=0 if ativo else 1,
+                novo_email = c1.text_input("E-mail do setor", value=email or "", key=f"email_{uid}", placeholder="setor@grupolle.com.br")
+                nova_senha = c2.text_input("Nova senha", key=f"s_{uid}", placeholder="Deixe em branco para não alterar")
+                c3, c4 = st.columns(2)
+                novo_ativo = c3.selectbox("Status", [1, 0], index=0 if ativo else 1,
                     format_func=lambda x: "Ativo" if x == 1 else "Inativo", key=f"a_{uid}")
-                col_salvar, col_reset = st.columns(2)
-                with col_salvar:
-                    if st.button("💾 Salvar", key=f"u_{uid}"):
-                        if nova_senha.strip():
-                            run_query("UPDATE usuarios SET senha=%s, ativo=%s, primeiro_acesso=1 WHERE id=%s",
-                                (nova_senha.strip(), novo_ativo, uid))
-                        else:
-                            run_query("UPDATE usuarios SET ativo=%s WHERE id=%s", (novo_ativo, uid))
-                        st.success("✅ Atualizado!")
-                        st.rerun()
-                with col_reset:
-                    if perfil == "setor" and setor_nome:
-                        if st.button("🔄 Resetar para senha do setor", key=f"reset_{uid}"):
-                            senha_setor = run_query(
-                                "SELECT senha FROM usuarios WHERE setor_nome=%s AND perfil='setor' ORDER BY id LIMIT 1",
-                                (setor_nome,), fetch=True)
-                            if senha_setor:
-                                run_query("UPDATE usuarios SET senha=%s, primeiro_acesso=1 WHERE id=%s",
-                                    (senha_setor[0][0], uid))
-                                st.success("✅ Senha resetada para o padrão do setor! Usuário precisará trocar no próximo acesso.")
-                                st.rerun()
+                col_salvar, col_reset = c4, st.container()
+                if st.button("💾 Salvar", key=f"u_{uid}"):
+                    if nova_senha.strip():
+                        run_query("UPDATE usuarios SET email=%s, senha=%s, ativo=%s, primeiro_acesso=1 WHERE id=%s",
+                            (novo_email.strip().lower(), nova_senha.strip(), novo_ativo, uid))
+                    else:
+                        run_query("UPDATE usuarios SET email=%s, ativo=%s WHERE id=%s",
+                            (novo_email.strip().lower(), novo_ativo, uid))
+                    st.cache_data.clear()
+                    st.success("✅ Atualizado!")
+                    st.rerun()
 
         st.markdown("---")
         st.subheader("➕ Novo Setor")
-        st.markdown("Cadastra um setor com senha padrão. Os colaboradores se auto-cadastram pelo primeiro acesso.")
         with st.form("form_setor"):
             c1, c2, c3 = st.columns(3)
-            novo_setor = c1.text_input("Nome do Setor *", placeholder="ex: Fiscal")
-            novo_login = c2.text_input("Login do setor *", placeholder="ex: fiscal")
-            nova_senha_setor = c3.text_input("Senha padrão do setor *", placeholder="ex: Fiscal@2026")
+            novo_nome = c1.text_input("Nome do Setor *", placeholder="ex: Fiscal")
+            novo_email_s = c2.text_input("E-mail *", placeholder="fiscal@grupolle.com.br")
+            nova_senha_s = c3.text_input("Senha *", placeholder="ex: Fiscal@2026")
             if st.form_submit_button("➕ Adicionar Setor", use_container_width=True):
-                if not novo_setor.strip() or not novo_login.strip() or not nova_senha_setor.strip():
+                if not novo_nome.strip() or not novo_email_s.strip() or not nova_senha_s.strip():
                     st.error("Preencha todos os campos.")
+                elif not novo_email_s.strip().endswith("@grupolle.com.br"):
+                    st.error("Use e-mail @grupolle.com.br")
                 else:
                     try:
-                        email_setor = f"{novo_login.strip().lower()}@grupolle.com.br"
                         run_query("""INSERT INTO usuarios (nome, email, login, senha, perfil, setor_nome, ativo, primeiro_acesso)
                             VALUES (%s, %s, %s, %s, 'setor', %s, 1, 0)""",
-                            (novo_setor.strip(), email_setor, novo_login.strip().lower(),
-                             nova_senha_setor.strip(), novo_setor.strip()))
-                        st.success(f"✅ Setor '{novo_setor}' criado! Senha padrão: {nova_senha_setor}")
+                            (novo_nome.strip(), novo_email_s.strip().lower(),
+                             novo_email_s.strip().lower(), nova_senha_s.strip(), novo_nome.strip()))
+                        st.success(f"✅ Setor '{novo_nome}' criado!")
                         st.rerun()
                     except:
-                        st.error("Login já existe.")
-
-        st.markdown("---")
-        st.subheader("🔑 Alterar senha padrão de um setor")
-        st.markdown("Isso atualiza a senha de todos os usuários do setor que ainda não trocaram a senha.")
-        setores = run_query("SELECT DISTINCT setor_nome FROM usuarios WHERE perfil='setor' AND setor_nome IS NOT NULL ORDER BY setor_nome", fetch=True)
-        if setores:
-            with st.form("form_senha_setor"):
-                setor_sel = st.selectbox("Setor", [s[0] for s in setores])
-                nova_senha_global = st.text_input("Nova senha padrão *", type="password")
-                if st.form_submit_button("🔑 Atualizar senha do setor", use_container_width=True):
-                    if not nova_senha_global.strip():
-                        st.error("Preencha a nova senha.")
-                    else:
-                        run_query("UPDATE usuarios SET senha=%s WHERE setor_nome=%s AND primeiro_acesso=1",
-                                  (nova_senha_global.strip(), setor_sel))
-                        st.success(f"✅ Senha padrão do setor '{setor_sel}' atualizada!")
+                        st.error("E-mail já existe.")
 
     with aba[1]:
         st.subheader("Gerenciar Tipos de Inconsistência")
-        st.markdown("Edite, adicione ou remova os tipos. Clique em **Salvar** quando terminar.")
         st.markdown("---")
-
         if "lista_tipos" not in st.session_state or st.session_state.get("reload_tipos", True):
             tipos_db = run_query("SELECT id, nome FROM tipos_inconsistencia WHERE ativo=1 ORDER BY nome", fetch=True)
             st.session_state.lista_tipos = [{"id": t[0], "nome": t[1]} for t in tipos_db]
             st.session_state.reload_tipos = False
-
         indices_remover = []
         for i, item in enumerate(st.session_state.lista_tipos):
             c1, c2 = st.columns([5, 1])
             with c1:
                 chave = str(item.get("id", "novo"))
-                novo_nome = st.text_input(f"Tipo {i+1}", value=item["nome"],
-                    key=f"tipo_edit_{i}_{chave}", label_visibility="collapsed")
+                novo_nome = st.text_input(f"Tipo {i+1}", value=item["nome"], key=f"tipo_edit_{i}_{chave}", label_visibility="collapsed")
                 st.session_state.lista_tipos[i]["nome"] = novo_nome
             with c2:
                 if st.button("X", key=f"rem_{i}_{chave}", help="Remover"):
                     indices_remover.append(i)
-
         if indices_remover:
             for idx in sorted(indices_remover, reverse=True):
                 st.session_state.lista_tipos.pop(idx)
             st.rerun()
-
         st.markdown("---")
         col_add, col_save = st.columns(2)
         with col_add:
@@ -118,9 +84,8 @@ def tela_admin():
         with col_save:
             if st.button("Salvar alteracoes", use_container_width=True, type="primary"):
                 st.session_state.confirmar_save_tipos = True
-
         if st.session_state.get("confirmar_save_tipos"):
-            st.warning("Tem certeza que deseja salvar todas as alteracoes?")
+            st.warning("Tem certeza?")
             cc1, cc2 = st.columns(2)
             with cc1:
                 if st.button("Sim, salvar", use_container_width=True, key="confirmar_sim"):
@@ -145,31 +110,25 @@ def tela_admin():
 
     with aba[2]:
         st.subheader("Gerenciar Tipos de Nota")
-        st.markdown("Edite, adicione ou remova os tipos de nota.")
         st.markdown("---")
-
         if "lista_tipos_nota" not in st.session_state or st.session_state.get("reload_tipos_nota", True):
             tipos_nota_db = run_query("SELECT id, nome FROM tipos_nota WHERE ativo=1 ORDER BY nome", fetch=True)
             st.session_state.lista_tipos_nota = [{"id": t[0], "nome": t[1]} for t in tipos_nota_db]
             st.session_state.reload_tipos_nota = False
-
         indices_remover_nota = []
         for i, item in enumerate(st.session_state.lista_tipos_nota):
             c1, c2 = st.columns([5, 1])
             with c1:
                 chave = str(item.get("id", "novo"))
-                novo_nome = st.text_input(f"Tipo Nota {i+1}", value=item["nome"],
-                    key=f"nota_edit_{i}_{chave}", label_visibility="collapsed")
+                novo_nome = st.text_input(f"Tipo Nota {i+1}", value=item["nome"], key=f"nota_edit_{i}_{chave}", label_visibility="collapsed")
                 st.session_state.lista_tipos_nota[i]["nome"] = novo_nome
             with c2:
                 if st.button("X", key=f"rem_nota_{i}_{chave}", help="Remover"):
                     indices_remover_nota.append(i)
-
         if indices_remover_nota:
             for idx in sorted(indices_remover_nota, reverse=True):
                 st.session_state.lista_tipos_nota.pop(idx)
             st.rerun()
-
         st.markdown("---")
         col_add2, col_save2 = st.columns(2)
         with col_add2:
@@ -179,9 +138,8 @@ def tela_admin():
         with col_save2:
             if st.button("Salvar tipos de nota", use_container_width=True, type="primary"):
                 st.session_state.confirmar_save_nota = True
-
         if st.session_state.get("confirmar_save_nota"):
-            st.warning("Tem certeza que deseja salvar?")
+            st.warning("Tem certeza?")
             cc1, cc2 = st.columns(2)
             with cc1:
                 if st.button("Sim, salvar", use_container_width=True, key="confirmar_sim_nota"):
@@ -203,3 +161,32 @@ def tela_admin():
                     st.session_state.confirmar_save_nota = False
                     st.session_state.reload_tipos_nota = True
                     st.rerun()
+
+    with aba[3]:
+        st.subheader("📧 Histórico de Notificações")
+        st.markdown("---")
+        c1, c2 = st.columns(2)
+        filtro_tipo = c1.selectbox("Tipo", ["Todos","novo_chamado","atualizacao_status","nova_mensagem","conclusao"])
+        filtro_sucesso = c2.selectbox("Status envio", ["Todos","Enviado","Falhou"])
+
+        query = "SELECT protocolo, destinatario, assunto, tipo, enviado_em, sucesso FROM notificacoes ORDER BY enviado_em DESC LIMIT 100"
+        notifs = run_query(query, fetch=True)
+
+        if not notifs:
+            st.info("Nenhuma notificação registrada ainda.")
+        else:
+            for protocolo, destinatario, assunto, tipo, enviado_em, sucesso in notifs:
+                if filtro_tipo != "Todos" and tipo != filtro_tipo: continue
+                if filtro_sucesso == "Enviado" and not sucesso: continue
+                if filtro_sucesso == "Falhou" and sucesso: continue
+                icone = "✅" if sucesso else "❌"
+                st.markdown(f"""
+                <div style='background:white;border:1px solid #e8e8e8;border-radius:8px;
+                padding:10px 14px;margin-bottom:6px;'>
+                    <div style='display:flex;justify-content:space-between;align-items:center;'>
+                        <span style='font-size:13px;font-weight:600;color:#041747;'>{icone} {assunto}</span>
+                        <span style='font-size:11px;color:#999;'>{enviado_em}</span>
+                    </div>
+                    <p style='font-size:12px;color:#666;margin:4px 0 0;'>Para: {destinatario} · Tipo: {tipo} · Protocolo: {protocolo or "—"}</p>
+                </div>
+                """, unsafe_allow_html=True)
