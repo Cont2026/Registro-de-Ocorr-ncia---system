@@ -134,36 +134,46 @@ def tela_novo_chamado():
     st.markdown("---")
 
     tipos = carregar_tipos()
-
-    # 1) Tipo de Movimentação (primeiro)
-    st.markdown("#### 🗂️ Tipo de Movimentação *")
     tipos_movimentacao = carregar_tipos_nota()
     if not tipos_movimentacao:
         st.warning("⚠️ Nenhum tipo de movimentação cadastrado. Solicite o cadastro no painel Admin.")
         return
-    tipo_nota = st.session_state.get("sel_tipo_nota", None)
-    cols_mov = st.columns(min(len(tipos_movimentacao), 4))
-    for i, op in enumerate(tipos_movimentacao):
-        with cols_mov[i % len(cols_mov)]:
-            ativo = tipo_nota == op
-            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_tipo_nota_{i}", use_container_width=True, type="primary" if ativo else "secondary"):
-                st.session_state["sel_tipo_nota"] = op
-                st.rerun()
-    tipo_nota = st.session_state.get("sel_tipo_nota", None)
-    if not tipo_nota:
-        st.info("Selecione o tipo de movimentação para continuar.")
-        return
 
-    eh_compra = "compra" in tipo_nota.lower()
-    if eh_compra:
-        data_entrada = st.date_input("📥 Data da Nota *", value=None, key="data_entrada")
-        data_negociacao = None
-    else:
-        data_negociacao = st.date_input("🤝 Data de Negociação *", value=None, key="data_negociacao")
-        data_entrada = None
+    # Detecta o fluxo de fechamento ANTES de renderizar os demais campos
+    eh_fechamento = st.session_state.get("sel_tipo") == "Informar fechamento de período"
 
-    # 2) Abertura de Período / Descontabilização
-    st.markdown("---")
+    # Valores recuperados da sessão (usados quando o fechamento esconde os widgets)
+    tipo_nota = st.session_state.get("sel_tipo_nota", None)
+    data_entrada = st.session_state.get("data_entrada")
+    data_negociacao = st.session_state.get("data_negociacao")
+    eh_compra = "compra" in (tipo_nota or "").lower()
+
+    # Tipo de Movimentação + Data: só aparecem quando NÃO for fechamento
+    if not eh_fechamento:
+        st.markdown("#### 🗂️ Tipo de Movimentação *")
+        cols_mov = st.columns(min(len(tipos_movimentacao), 4))
+        for i, op in enumerate(tipos_movimentacao):
+            with cols_mov[i % len(cols_mov)]:
+                ativo = tipo_nota == op
+                if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_tipo_nota_{i}", use_container_width=True, type="primary" if ativo else "secondary"):
+                    st.session_state["sel_tipo_nota"] = op
+                    st.rerun()
+        tipo_nota = st.session_state.get("sel_tipo_nota", None)
+        if not tipo_nota:
+            st.info("Selecione o tipo de movimentação para continuar.")
+            return
+
+        eh_compra = "compra" in tipo_nota.lower()
+        if eh_compra:
+            data_entrada = st.date_input("📥 Data da Nota *", value=None, key="data_entrada")
+            data_negociacao = None
+        else:
+            data_negociacao = st.date_input("🤝 Data de Negociação *", value=None, key="data_negociacao")
+            data_entrada = None
+
+        st.markdown("---")
+
+    # Abertura de Período / Descontabilização (sempre visível)
     st.markdown("#### 📋 Abertura de Período / Descontabilização *")
     tipos_com_outros = tipos + ["Outros"]
     tipo_sel = st.session_state.get("sel_tipo", None)
@@ -179,7 +189,7 @@ def tela_novo_chamado():
         st.info("Selecione o tipo para continuar.")
         return
 
-    # === FLUXO ESPECIAL: Informar fechamento de período ===
+    # === FLUXO ESPECIAL: Informar fechamento de período (só entrega + período) ===
     if tipo == "Informar fechamento de período":
         st.markdown("---")
         st.markdown("#### 📅 Qual fechamento parcial? *")
@@ -200,7 +210,7 @@ def tela_novo_chamado():
                 st.error("⚠️ Selecione o fechamento parcial.")
                 return
             protocolo = registrar_fechamento(parcial, tipo_nota, data_entrada, data_negociacao)
-            for k in ["sel_tipo_nota", "sel_tipo", "sel_parcial"]:
+            for k in ["sel_tipo_nota", "sel_tipo", "sel_parcial", "data_entrada", "data_negociacao"]:
                 st.session_state.pop(k, None)
             st.cache_data.clear()
             st.success(f"✅ Chamado registrado! Protocolo: **{protocolo}**")
@@ -328,7 +338,7 @@ def tela_novo_chamado():
         except:
             pass
 
-        for k in ["sel_tipo_nota","sel_tipo","sel_parcial","sel_empresa","sel_prioridade","sel_nf","sel_fin","outros_desc"]:
+        for k in ["sel_tipo_nota","sel_tipo","sel_parcial","sel_empresa","sel_prioridade","sel_nf","sel_fin","outros_desc","data_entrada","data_negociacao"]:
             st.session_state.pop(k, None)
 
         st.cache_data.clear()
