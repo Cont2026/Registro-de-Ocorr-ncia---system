@@ -196,9 +196,10 @@ def sidebar():
                 """, unsafe_allow_html=True)
 
         st.markdown("---")
-        paginas = {
+       paginas = {
             "📊 Dashboard": "dashboard",
             "📋 Todos os Chamados": "todos_chamados",
+            "📤 Solicitacao de Tratativa": "tratativa",
             "📅 Calendario": "calendario",
             "⚙️ Administracao": "admin",
         } if st.session_state.perfil == "contabilidade" else {
@@ -245,8 +246,10 @@ def main():
         get_chamados().tela_novo_chamado()
     elif p == "calendario":
         get_calendario().tela_calendario()
-    elif p == "admin":
+   elif p == "admin":
         get_admin().tela_admin()
+    elif p == "tratativa":
+        get_tratativa().tela_tratativa()
 
 if __name__ == "__main__":
     main()
