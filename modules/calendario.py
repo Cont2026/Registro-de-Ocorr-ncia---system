@@ -218,7 +218,7 @@ def exibir_anual(competencias, todos_fechamentos):
         st.markdown("<hr style='margin:8px 0;border-color:#f0f0f0;'>", unsafe_allow_html=True)
 
 def tela_calendario():
-  st.title("📅 Calendário Operacional Corporativo")
+    st.title("📅 Calendário Operacional Corporativo")
     st.markdown("Acompanhe os fechamentos e importações contábeis.")
     st.markdown("---")
 
