@@ -196,27 +196,34 @@ def sidebar():
                 """, unsafe_allow_html=True)
 
         st.markdown("---")
-       paginas = {
-            "📊 Dashboard": "dashboard",
-            "📋 Todos os Chamados": "todos_chamados",
-            "📤 Solicitacao de Tratativa": "tratativa",
-            "📅 Calendario": "calendario",
-            "⚙️ Administracao": "admin",
-        } if st.session_state.perfil == "contabilidade" else {
-            "➕ Novo Chamado": "novo_chamado",
-            "📋 Meus Chamados": "meus_chamados",
-            "📅 Calendario": "calendario",
-        }
+
+        if st.session_state.perfil == "contabilidade":
+            paginas = {
+                "📊 Dashboard": "dashboard",
+                "📋 Todos os Chamados": "todos_chamados",
+                "📤 Solicitacao de Tratativa": "tratativa",
+                "📅 Calendario": "calendario",
+                "⚙️ Administracao": "admin",
+            }
+        else:
+            paginas = {
+                "➕ Novo Chamado": "novo_chamado",
+                "📋 Meus Chamados": "meus_chamados",
+                "📅 Calendario": "calendario",
+            }
+
         for label, key in paginas.items():
             if st.button(label, use_container_width=True, key=f"nav_{key}"):
                 st.session_state.pagina = key
                 st.session_state.protocolo_aberto = None
                 st.rerun()
+
         st.markdown("---")
         if st.button("Sair", use_container_width=True):
             for k in list(st.session_state.keys()):
                 del st.session_state[k]
             st.rerun()
+
         st.markdown("""
             <div style='position:fixed;bottom:20px;left:0;width:260px;text-align:center;padding:0 16px;'>
                 <p style='font-size:0.65rem;color:rgba(255,255,255,0.3);font-family:Montserrat,sans-serif;margin:0;'>ROC 2026 Grupo LLE</p>
@@ -246,7 +253,7 @@ def main():
         get_chamados().tela_novo_chamado()
     elif p == "calendario":
         get_calendario().tela_calendario()
-   elif p == "admin":
+    elif p == "admin":
         get_admin().tela_admin()
     elif p == "tratativa":
         get_tratativa().tela_tratativa()
