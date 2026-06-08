@@ -4,6 +4,13 @@ from database.connection import init_db, run_query
 
 st.set_page_config(page_title="ROC - Registro de Ocorrências Contábeis", page_icon="📋", layout="wide", initial_sidebar_state="expanded")
 
+# Lê parâmetro de protocolo na URL
+try:
+    params = st.query_params
+    protocolo_url = params.get("protocolo", None)
+except:
+    protocolo_url = None
+
 st.markdown("""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');
@@ -39,6 +46,7 @@ if "logado" not in st.session_state:
     st.session_state.pagina = None
     st.session_state.email = None
     st.session_state.user_id = None
+    st.session_state.protocolo_aberto = protocolo_url
 
 @st.cache_resource
 def inicializar_banco():
@@ -80,10 +88,6 @@ def buscar_usuario(email, senha):
         (email, senha), fetch=True)
     return rows[0] if rows else None
 
-@st.cache_data(ttl=300, show_spinner=False)
-def buscar_setores():
-    return run_query("SELECT DISTINCT nome FROM usuarios WHERE perfil='setor' ORDER BY nome", fetch=True)
-
 def tela_login():
     logo_b64 = carregar_logo_colorida()
     logo_html = f"<img src='data:image/png;base64,{logo_b64}' style='width:200px;display:block;margin:0 auto 8px;'/>" if logo_b64 else ""
@@ -99,69 +103,35 @@ def tela_login():
                     <p style='font-family:Montserrat,sans-serif;font-weight:300;font-size:0.8rem;color:gray;margin:4px 0 0;'>Grupo LLE</p>
                 </div>
         """, unsafe_allow_html=True)
-
-        aba_login, aba_cadastro = st.tabs(["🔐 Entrar", "📝 Primeiro acesso"])
-
-        with aba_login:
-            with st.form("form_login"):
-                email = st.text_input("E-mail", placeholder="seu.email@grupolle.com.br")
-                senha = st.text_input("Senha", type="password", placeholder="••••••••")
-                entrar = st.form_submit_button("Entrar", use_container_width=True)
-            if entrar:
-                if not email.strip().endswith("@grupolle.com.br"):
-                    st.error("Use seu e-mail corporativo @grupolle.com.br")
-                else:
-                    usuario = buscar_usuario(email.strip().lower(), senha.strip())
-                    if usuario:
-                        uid, nome, perfil, setor_nome, primeiro_acesso = usuario
-                        st.session_state.logado = True
-                        st.session_state.user_id = uid
-                        st.session_state.usuario = nome
-                        st.session_state.perfil = perfil
-                        st.session_state.setor = setor_nome or nome
-                        st.session_state.email = email.strip().lower()
-                        st.session_state.primeiro_acesso = primeiro_acesso
-                        st.session_state.pagina = "trocar_senha" if primeiro_acesso else ("dashboard" if perfil == "contabilidade" else "novo_chamado")
-                        st.rerun()
-                    else:
-                        st.error("E-mail ou senha incorretos.")
-
-        with aba_cadastro:
-            with st.form("form_cadastro"):
-                st.markdown("**Somente e-mails @grupolle.com.br são aceitos.**")
-                novo_nome = st.text_input("Seu nome completo *")
-                novo_email = st.text_input("Seu e-mail corporativo *", placeholder="seu.email@grupolle.com.br")
-                setores_lista = run_query("SELECT DISTINCT setor_nome FROM usuarios WHERE perfil='setor' AND setor_nome IS NOT NULL ORDER BY setor_nome", fetch=True)
-                opcoes_setores = [s[0] for s in setores_lista] if setores_lista else []
-                setor_escolhido = st.selectbox("Seu setor *", [""] + opcoes_setores)
-                cadastrar = st.form_submit_button("Solicitar acesso", use_container_width=True)
-
-            if cadastrar:
-                erros = []
-                if not novo_nome.strip(): erros.append("Nome")
-                if not novo_email.strip(): erros.append("E-mail")
-                if not setor_escolhido: erros.append("Setor")
-                if novo_email.strip() and not novo_email.strip().lower().endswith("@grupolle.com.br"):
-                    st.error("Use seu e-mail corporativo @grupolle.com.br")
-                elif erros:
-                    st.error(f"Preencha: {', '.join(erros)}")
-                else:
-                    senha_setor = run_query(
-                        "SELECT senha FROM usuarios WHERE setor_nome=%s AND perfil='setor' LIMIT 1",
-                        (setor_escolhido,), fetch=True)
-                    if not senha_setor:
-                        st.error("Setor não encontrado. Contate a Contabilidade.")
-                    else:
-                        try:
-                            run_query("""INSERT INTO usuarios (nome, email, login, senha, perfil, setor_nome, ativo, primeiro_acesso)
-                                VALUES (%s, %s, %s, %s, 'setor', %s, 1, 1)""",
-                                (novo_nome.strip(), novo_email.strip().lower(),
-                                 novo_email.strip().lower(), senha_setor[0][0], setor_escolhido))
-                            st.success("✅ Acesso criado! Faça login com seu e-mail e a senha do seu setor.")
-                        except:
-                            st.error("Este e-mail já está cadastrado.")
-
+        with st.form("form_login"):
+            email = st.text_input("E-mail", placeholder="setor@grupolle.com.br")
+            senha = st.text_input("Senha", type="password", placeholder="••••••••")
+            entrar = st.form_submit_button("Entrar", use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
+        if entrar:
+            if not email.strip().endswith("@grupolle.com.br"):
+                st.error("Use seu e-mail corporativo @grupolle.com.br")
+            else:
+                usuario = buscar_usuario(email.strip().lower(), senha.strip())
+                if usuario:
+                    uid, nome, perfil, setor_nome, primeiro_acesso = usuario
+                    st.session_state.logado = True
+                    st.session_state.user_id = uid
+                    st.session_state.usuario = nome
+                    st.session_state.perfil = perfil
+                    st.session_state.setor = setor_nome or nome
+                    st.session_state.email = email.strip().lower()
+                    st.session_state.primeiro_acesso = primeiro_acesso
+                    if primeiro_acesso:
+                        st.session_state.pagina = "trocar_senha"
+                    elif protocolo_url:
+                        st.session_state.pagina = "todos_chamados" if perfil == "contabilidade" else "meus_chamados"
+                        st.session_state.protocolo_aberto = protocolo_url
+                    else:
+                        st.session_state.pagina = "dashboard" if perfil == "contabilidade" else "novo_chamado"
+                    st.rerun()
+                else:
+                    st.error("E-mail ou senha incorretos.")
 
 def tela_trocar_senha():
     st.title("🔑 Troque sua senha")
@@ -183,6 +153,7 @@ def tela_trocar_senha():
                           (nova.strip(), st.session_state.user_id))
                 st.session_state.primeiro_acesso = 0
                 st.session_state.pagina = "dashboard" if st.session_state.perfil == "contabilidade" else "novo_chamado"
+                st.cache_data.clear()
                 st.success("✅ Senha alterada com sucesso!")
                 st.rerun()
 
@@ -235,6 +206,7 @@ def sidebar():
         for label, key in paginas.items():
             if st.button(label, use_container_width=True, key=f"nav_{key}"):
                 st.session_state.pagina = key
+                st.session_state.protocolo_aberto = None
                 st.rerun()
         st.markdown("---")
         if st.button("🚪 Sair", use_container_width=True):
@@ -259,12 +231,13 @@ def main():
         st.session_state.pagina = "dashboard" if st.session_state.perfil == "contabilidade" else "novo_chamado"
     sidebar()
     p = st.session_state.pagina
+    protocolo_aberto = st.session_state.get("protocolo_aberto")
     if p == "dashboard":        get_dashboard().tela_dashboard()
-    elif p == "todos_chamados": get_chamados().tela_todos_chamados()
-    elif p == "meus_chamados":  get_chamados().tela_meus_chamados()
+    elif p == "todos_chamados": get_chamados().tela_todos_chamados(protocolo_aberto)
+    elif p == "meus_chamados":  get_chamados().tela_meus_chamados(protocolo_aberto)
     elif p == "novo_chamado":   get_chamados().tela_novo_chamado()
     elif p == "calendario":     get_calendario().tela_calendario()
     elif p == "admin":          get_admin().tela_admin()
 
 if __name__ == "__main__":
-    main()
+    main()v
