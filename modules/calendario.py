@@ -219,7 +219,7 @@ def exibir_anual(competencias, todos_fechamentos):
 
 def tela_calendario():
     st.title("📅 Calendário Operacional Corporativo")
-    st.markdown("Acompanhe os fechamentos e importações contábeis.")
+    st.markdown("Acompanhem as importações contábeis e os fechamentos corporativos.")
     st.markdown("---")
 
     competencias = buscar_competencias()
