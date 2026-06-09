@@ -10,6 +10,8 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
+PREFIXO_FECHAMENTO = "Informar fechamento de período"
+
 HEADER_FILL = PatternFill("solid", fgColor="041747")
 HEADER_FONT = Font(name="Calibri", bold=True, color="FFFFFF", size=12)
 HEADER_ALIGN = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -104,7 +106,23 @@ def tela_dashboard():
     filtro_empresa = c2.multiselect("Empresa", df["empresa"].unique().tolist(), default=df["empresa"].unique().tolist())
     filtro_setor = c3.multiselect("Setor", df["setor"].unique().tolist(), default=df["setor"].unique().tolist())
 
-    df_f = df[df["status"].isin(filtro_status) & df["empresa"].isin(filtro_empresa) & df["setor"].isin(filtro_setor)]
+    # Filtro por data (base: Abertura ou Resolução) + período
+    d1, d2, d3 = st.columns(3)
+    campo_label = d1.selectbox("Filtrar data por", ["Abertura", "Resolução"])
+    col_data = "aberto_em" if campo_label == "Abertura" else "resolvido_em"
+    data_min = df["aberto_em"].min().date()
+    data_max = df["aberto_em"].max().date()
+    data_ini = d2.date_input("De", value=data_min, key="dash_data_ini")
+    data_fim = d3.date_input("Até", value=data_max, key="dash_data_fim")
+
+    mask_data = df[col_data].dt.date.between(data_ini, data_fim)
+
+    df_f = df[
+        df["status"].isin(filtro_status) &
+        df["empresa"].isin(filtro_empresa) &
+        df["setor"].isin(filtro_setor) &
+        mask_data
+    ]
 
     st.markdown("---")
     st.markdown("#### 📈 Indicadores")
@@ -135,28 +153,52 @@ def tela_dashboard():
         fig2.update_layout(showlegend=False, coloraxis_showscale=False, margin=dict(l=0,r=0,t=0,b=0), height=300)
         st.plotly_chart(fig2, use_container_width=True)
 
-    cc, cd = st.columns(2)
-    with cc:
-        st.markdown("##### Chamados por Empresa")
-        df_e = df_f.groupby("empresa").size().reset_index(name="qtd")
-        fig3 = px.pie(df_e, names="empresa", values="qtd", color_discrete_sequence=px.colors.sequential.Blues_r)
-        fig3.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=300)
+    st.markdown("##### Tipos de chamado por Setor")
+    df_ts = df_f.groupby(["setor","tipo"]).size().reset_index(name="qtd")
+    if not df_ts.empty:
+        fig3 = px.bar(df_ts, x="setor", y="qtd", color="tipo", barmode="stack",
+                      labels={"setor":"Setor","qtd":"Qtd","tipo":"Tipo"})
+        fig3.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=380, legend_title_text="")
         st.plotly_chart(fig3, use_container_width=True)
-    with cd:
-        st.markdown("##### Chamados por Status")
-        df_st = df_f.groupby("status").size().reset_index(name="qtd")
-        cores = {"Aberto":"#ef4444","Em andamento":"#f59e0b","Resolvido":"#22c55e","Cancelado":"#6b7280"}
-        fig4 = px.pie(df_st, names="status", values="qtd", color="status", color_discrete_map=cores)
-        fig4.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=300)
-        st.plotly_chart(fig4, use_container_width=True)
+    else:
+        st.info("Sem dados para o período selecionado.")
 
     st.markdown("---")
-    st.markdown("##### Evolução Mensal")
-    df_f["mes"] = df_f["aberto_em"].dt.to_period("M").astype(str)
-    df_m = df_f.groupby("mes").size().reset_index(name="qtd").sort_values("mes")
+    st.markdown("##### 📈 Evolução Mensal")
+    df_evo = df_f.copy()
+    df_evo["mes"] = df_evo["aberto_em"].dt.to_period("M").astype(str)
+    df_m = df_evo.groupby("mes").size().reset_index(name="qtd").sort_values("mes")
     fig5 = px.line(df_m, x="mes", y="qtd", markers=True, labels={"mes":"Mês","qtd":"Chamados"})
     fig5.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=250)
     st.plotly_chart(fig5, use_container_width=True)
+
+    # === Registro de entregas de fechamento de período ===
+    st.markdown("---")
+    st.markdown("##### 🗂️ Entregas de Fechamento de Período")
+    st.caption("Filtra pela data da entrega (data de abertura) e pelos setores selecionados.")
+    mask_entrega_data = df["aberto_em"].dt.date.between(data_ini, data_fim)
+    df_entregas = df[
+        df["setor"].isin(filtro_setor) &
+        mask_entrega_data &
+        df["tipo"].astype(str).str.startswith(PREFIXO_FECHAMENTO)
+    ].copy()
+
+    if df_entregas.empty:
+        st.info("Nenhuma entrega de fechamento de período no período/setores selecionados.")
+    else:
+        df_entregas["Período"] = (
+            df_entregas["tipo"].astype(str)
+            .str.replace(f"{PREFIXO_FECHAMENTO} - ", "", regex=False)
+            .str.replace(PREFIXO_FECHAMENTO, "—", regex=False)
+        )
+        df_entregas["Data/Hora"] = df_entregas["aberto_em"].dt.strftime("%d/%m/%Y %H:%M")
+        tabela_entregas = (
+            df_entregas[["setor","Período","Data/Hora","protocolo"]]
+            .rename(columns={"setor":"Setor","protocolo":"Protocolo"})
+            .sort_values("Data/Hora", ascending=False)
+        )
+        st.dataframe(tabela_entregas, use_container_width=True, hide_index=True)
+        st.caption(f"Total de entregas: {len(tabela_entregas)}")
 
     st.markdown("---")
     st.markdown("##### 📥 Exportar dados")
