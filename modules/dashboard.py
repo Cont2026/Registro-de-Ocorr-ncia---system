@@ -153,15 +153,26 @@ def tela_dashboard():
         fig2.update_layout(showlegend=False, coloraxis_showscale=False, margin=dict(l=0,r=0,t=0,b=0), height=300)
         st.plotly_chart(fig2, use_container_width=True)
 
-    st.markdown("##### Tipos de chamado por Setor")
-    df_ts = df_f.groupby(["setor","tipo"]).size().reset_index(name="qtd")
-    if not df_ts.empty:
-        fig3 = px.bar(df_ts, x="setor", y="qtd", color="tipo", barmode="stack",
-                      labels={"setor":"Setor","qtd":"Qtd","tipo":"Tipo"})
-        fig3.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=380, legend_title_text="")
-        st.plotly_chart(fig3, use_container_width=True)
-    else:
+    st.markdown("##### 🍕 Tipos de chamado por Setor")
+    setores_unicos = sorted([s for s in df_f["setor"].dropna().unique().tolist() if s])
+    if not setores_unicos:
         st.info("Sem dados para o período selecionado.")
+    else:
+        n_cols = 2
+        for inicio in range(0, len(setores_unicos), n_cols):
+            grupo = setores_unicos[inicio:inicio+n_cols]
+            cols = st.columns(n_cols)
+            for j, setor in enumerate(grupo):
+                with cols[j]:
+                    df_pie = df_f[df_f["setor"] == setor].groupby("tipo").size().reset_index(name="qtd")
+                    fig = px.pie(df_pie, names="tipo", values="qtd")
+                    fig.update_traces(textposition="inside", textinfo="percent")
+                    fig.update_layout(
+                        title=dict(text=setor, font=dict(size=14, color="#041747")),
+                        margin=dict(l=0, r=0, t=40, b=0), height=320,
+                        legend=dict(orientation="h", y=-0.1, font=dict(size=9))
+                    )
+                    st.plotly_chart(fig, use_container_width=True, key=f"pie_setor_{inicio+j}")
 
     st.markdown("---")
     st.markdown("##### 📈 Evolução Mensal")
