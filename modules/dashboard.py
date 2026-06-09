@@ -12,6 +12,23 @@ from openpyxl.utils import get_column_letter
 BRASILIA = ZoneInfo("America/Sao_Paulo")
 PREFIXO_FECHAMENTO = "Informar fechamento de período"
 
+CORES_NIVEL = {
+    "Dentro do esperado": "#0F8C3B",
+    "Atenção": "#FAC318",
+    "Alerta": "#F97316",
+    "Crítico": "#EF4444",
+}
+CORES_NIVEL_XL = {k: v.lstrip("#") for k, v in CORES_NIVEL.items()}
+
+def classificar_performance(qtd):
+    if qtd <= 3:
+        return "Dentro do esperado", "100%", "Processo controlado e aderente"
+    if qtd <= 8:
+        return "Atenção", "85%", "Indícios de falha pontual de conferência"
+    if qtd <= 15:
+        return "Alerta", "70%", "Deficiência recorrente de conferência"
+    return "Crítico", "40%", "Ausência de processo estruturado"
+
 HEADER_FILL = PatternFill("solid", fgColor="041747")
 HEADER_FONT = Font(name="Calibri", bold=True, color="FFFFFF", size=12)
 HEADER_ALIGN = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -83,6 +100,84 @@ def inserir_cabecalho_relatorio(ws, titulo):
     ws["E3"] = f"Gerado em: {datetime.now(BRASILIA).strftime('%d/%m/%Y às %H:%M')}"
     ws["E3"].font = Font(name="Calibri", size=10, color="999999")
 
+def montar_performance(df_filtrado):
+    """Conta chamados (erros) por setor, excluindo fechamentos de período, e classifica."""
+    df_err = df_filtrado[~df_filtrado["tipo"].astype(str).str.startswith(PREFIXO_FECHAMENTO)]
+    base = df_err.groupby("setor").size().reset_index(name="qtd")
+    regs = []
+    for _, r in base.iterrows():
+        nivel, indice, diag = classificar_performance(int(r["qtd"]))
+        regs.append({
+            "Setor": r["setor"],
+            "Qtd. Erros": int(r["qtd"]),
+            "Nível": nivel,
+            "Índice": indice,
+            "Diagnóstico": diag,
+        })
+    if not regs:
+        return pd.DataFrame(columns=["Setor","Qtd. Erros","Nível","Índice","Diagnóstico"])
+    return pd.DataFrame(regs).sort_values("Qtd. Erros", ascending=False).reset_index(drop=True)
+
+def tabela_performance_html(df_perf):
+    linhas = ""
+    for _, r in df_perf.iterrows():
+        hexc = CORES_NIVEL.get(r["Nível"], "#999")
+        txt = "#041747" if r["Nível"] == "Atenção" else "white"
+        linhas += f"""<tr>
+            <td style='padding:8px 10px;border-bottom:1px solid #eee;'>{r['Setor']}</td>
+            <td style='padding:8px 10px;border-bottom:1px solid #eee;text-align:center;font-weight:700;color:#041747;'>{r['Qtd. Erros']}</td>
+            <td style='padding:8px 10px;border-bottom:1px solid #eee;text-align:center;'>
+                <span style='background:{hexc};color:{txt};padding:3px 12px;border-radius:12px;font-size:12px;font-weight:700;'>{r['Nível']}</span>
+            </td>
+            <td style='padding:8px 10px;border-bottom:1px solid #eee;text-align:center;font-weight:700;color:{hexc};'>{r['Índice']}</td>
+            <td style='padding:8px 10px;border-bottom:1px solid #eee;font-size:13px;color:#555;'>{r['Diagnóstico']}</td>
+        </tr>"""
+    return f"""
+    <table style='width:100%;border-collapse:collapse;font-family:Arial,sans-serif;'>
+        <thead>
+            <tr style='background:#041747;color:white;'>
+                <th style='padding:10px;text-align:left;'>Setor</th>
+                <th style='padding:10px;'>Qtd. Erros</th>
+                <th style='padding:10px;'>Nível</th>
+                <th style='padding:10px;'>Índice</th>
+                <th style='padding:10px;text-align:left;'>Diagnóstico</th>
+            </tr>
+        </thead>
+        <tbody>{linhas}</tbody>
+    </table>"""
+
+def escrever_aba_performance(writer, df_perf):
+    ws = writer.book.create_sheet("Performance")
+    writer.sheets["Performance"] = ws
+    inserir_cabecalho_relatorio(ws, "ROC — Performance por Setor")
+    start = 7
+    df_perf.to_excel(writer, index=False, sheet_name="Performance", startrow=start-1)
+    n_cols = len(df_perf.columns)
+    for col_num in range(1, n_cols + 1):
+        cell = ws.cell(row=start, column=col_num)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = HEADER_ALIGN
+        cell.border = BORDER
+    ws.row_dimensions[start].height = 28
+    nivel_idx = list(df_perf.columns).index("Nível") + 1
+    for i, (_, r) in enumerate(df_perf.iterrows()):
+        row_n = start + 1 + i
+        for col_num in range(1, n_cols + 1):
+            cell = ws.cell(row=row_n, column=col_num)
+            cell.font = DATA_FONT
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.fill = PatternFill("solid", fgColor="FFFFFF")
+            cell.border = BORDER
+        nivel = r["Nível"]
+        hexc = CORES_NIVEL_XL.get(nivel)
+        if hexc:
+            c = ws.cell(row=row_n, column=nivel_idx)
+            c.fill = PatternFill("solid", fgColor=hexc)
+            c.font = Font(name="Calibri", bold=True,
+                          color=("041747" if nivel == "Atenção" else "FFFFFF"), size=11)
+    ajustar_colunas(ws)
+
 def tela_dashboard():
     st.title("📊 Dashboard")
     st.markdown("---")
@@ -153,6 +248,16 @@ def tela_dashboard():
         fig2.update_layout(showlegend=False, coloraxis_showscale=False, margin=dict(l=0,r=0,t=0,b=0), height=300)
         st.plotly_chart(fig2, use_container_width=True)
 
+    # === Performance por Setor (régua de erros) ===
+    st.markdown("##### 🎯 Performance por Setor")
+    st.caption("Baseada na quantidade de chamados (erros) por setor. Fechamentos de período não entram na contagem.")
+    df_perf = montar_performance(df_f)
+    if df_perf.empty:
+        st.info("Sem chamados para classificar no período selecionado.")
+    else:
+        st.markdown(tabela_performance_html(df_perf), unsafe_allow_html=True)
+
+    st.markdown("---")
     st.markdown("##### 🍕 Tipos de chamado por Setor")
     setores_unicos = sorted([s for s in df_f["setor"].dropna().unique().tolist() if s])
     if not setores_unicos:
@@ -270,6 +375,10 @@ def tela_dashboard():
                     cell.border = BORDER
             linha += len(df_sec) + 3
         ajustar_colunas(ws2)
+
+        # Aba de Performance por Setor
+        if not df_perf.empty:
+            escrever_aba_performance(writer, df_perf)
 
     buffer.seek(0)
     st.download_button(
