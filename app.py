@@ -90,6 +90,13 @@ def buscar_usuario(email, senha):
         (email, senha), fetch=True)
     return rows[0] if rows else None
 
+def setor_eh_dono(protocolo, setor):
+    try:
+        r = run_query("SELECT 1 FROM chamados WHERE protocolo=%s AND setor=%s", (protocolo, setor), fetch=True)
+        return bool(r)
+    except:
+        return True
+
 def tela_login():
     logo_b64 = carregar_logo_colorida()
     logo_html = f"<img src='data:image/png;base64,{logo_b64}' style='width:200px;display:block;margin:0 auto 8px;'/>" if logo_b64 else ""
@@ -127,7 +134,12 @@ def tela_login():
                     if primeiro_acesso:
                         st.session_state.pagina = "trocar_senha"
                     elif protocolo_url:
-                        st.session_state.pagina = "todos_chamados" if perfil == "contabilidade" else "meus_chamados"
+                        if perfil == "contabilidade":
+                            st.session_state.pagina = "todos_chamados"
+                        elif setor_eh_dono(protocolo_url, setor_nome or nome):
+                            st.session_state.pagina = "meus_chamados"
+                        else:
+                            st.session_state.pagina = "acompanhamento"
                         st.session_state.protocolo_aberto = protocolo_url
                     else:
                         st.session_state.pagina = "dashboard" if perfil == "contabilidade" else "novo_chamado"
@@ -208,7 +220,8 @@ def sidebar():
         else:
             paginas = {
                 "➕ Novo Chamado": "novo_chamado",
-                "📋 Meus Chamados": "meus_chamados",
+                "📋 Minhas Solicitações": "meus_chamados",
+                "👀 Solicitações em Acompanhamento": "acompanhamento",
                 "📅 Calendario": "calendario",
             }
 
@@ -249,6 +262,8 @@ def main():
         get_chamados().tela_todos_chamados(protocolo_aberto)
     elif p == "meus_chamados":
         get_chamados().tela_meus_chamados(protocolo_aberto)
+    elif p == "acompanhamento":
+        get_chamados().tela_acompanhamento(protocolo_aberto)
     elif p == "novo_chamado":
         get_chamados().tela_novo_chamado()
     elif p == "calendario":
