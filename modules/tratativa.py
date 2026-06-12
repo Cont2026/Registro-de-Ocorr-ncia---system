@@ -18,9 +18,12 @@ def buscar_setores():
         fetch=True)
     return rows if rows else []
 
-def email_solicitacao_tratativa(email_setor, setor_nome, empresa, tipo, parceiro, numero_nota, tipo_nota, valor, observacao, criado_por):
+def email_solicitacao_tratativa(email_setor, setor_nome, empresa, tipo, parceiro, numero_nota, tipo_nota, valor, observacao, criado_por, anexos=None):
     url = get_url_base()
     assunto = "ROC — Solicitacao de Tratativa - Origem Contabilidade"
+    aviso_anexo = ""
+    if anexos:
+        aviso_anexo = "<p style='font-size:12px;color:#041747;margin:16px 0 0;'>📎 Esta solicitação contém anexo(s).</p>"
     corpo = f"""
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;padding:20px;border-radius:12px;">
         <div style="background:#041747;padding:20px;border-radius:8px 8px 0 0;text-align:center;">
@@ -45,6 +48,7 @@ def email_solicitacao_tratativa(email_setor, setor_nome, empresa, tipo, parceiro
             </table>
 
             {"<div style='margin-top:16px;padding:14px;background:#FFF8E7;border-left:4px solid #FAC318;border-radius:4px;'><p style='font-size:13px;font-weight:600;color:#041747;margin:0 0 6px;'>Observacao da Contabilidade:</p><p style='font-size:13px;color:#333;margin:0;'>" + observacao + "</p></div>" if observacao else ""}
+            {aviso_anexo}
 
             <div style="margin-top:24px;padding:16px;background:#EFF6FF;border-radius:8px;border:1px solid #BFDBFE;">
                 <p style="font-size:13px;color:#041747;font-weight:600;margin:0 0 8px;">📌 Instrucoes:</p>
@@ -63,7 +67,7 @@ def email_solicitacao_tratativa(email_setor, setor_nome, empresa, tipo, parceiro
         ROC 2026 · Grupo LLE · Solicitacao enviada por: {criado_por}</p>
     </div>
     """
-    return enviar_email(email_setor, assunto, corpo, None, "solicitacao_tratativa")
+    return enviar_email(email_setor, assunto, corpo, None, "solicitacao_tratativa", anexos=anexos)
 
 def tela_tratativa():
     st.title("📤 Solicitacao de Tratativa")
@@ -76,6 +80,7 @@ def tela_tratativa():
         return
 
     opcoes_setores = {f"{s[0]} ({s[1] or 'sem e-mail'})": s for s in setores}
+    mapa_email = {s[0]: s[1] for s in setores}
 
     tipos = run_query("SELECT nome FROM tipos_inconsistencia WHERE ativo=1 ORDER BY nome", fetch=True)
     tipos_lista = [t[0] for t in tipos] if tipos else []
@@ -83,6 +88,9 @@ def tela_tratativa():
     st.markdown("#### 📧 Setor Responsavel *")
     setor_sel_key = st.selectbox("Selecione o setor", [""] + list(opcoes_setores.keys()), label_visibility="collapsed")
     setor_dados = opcoes_setores.get(setor_sel_key)
+
+    nome_resp = setor_dados[0] if setor_dados else None
+    nomes_copia = [s[0] for s in setores if s[1] and s[0] != nome_resp]
 
     st.markdown("---")
 
@@ -141,6 +149,9 @@ def tela_tratativa():
             numero_nota = st.text_input("📄 Numero da Nota")
         with col2:
             valor = st.text_input("💰 Valor", placeholder="0,00")
+        copia_sel = st.multiselect("👥 Setores em cópia (opcional)", nomes_copia,
+            help="Esses setores recebem o e-mail da solicitação em cópia.")
+        arquivo = st.file_uploader("📎 Anexo (opcional)", type=["pdf","png","jpg","jpeg","xlsx","xml","docx"])
         observacao = st.text_area("📝 Observacao para o setor *",
             placeholder="Descreva a inconsistencia identificada e o que o setor deve fazer...")
         enviar = st.form_submit_button("📨 Enviar Solicitacao", use_container_width=True)
@@ -163,6 +174,11 @@ def tela_tratativa():
 
         tipo_final = f"Outros: {tipo_outros_desc.strip()}" if tipo == "Outros" else (tipo or "")
 
+        # Prepara anexo (se houver)
+        anexos = None
+        if arquivo is not None:
+            anexos = [(arquivo.name, arquivo.getvalue())]
+
         run_query("""INSERT INTO solicitacoes_tratativa
             (setor_destino, empresa, tipo_inconsistencia, nome_parceiro, numero_nota,
             tipo_nota, valor, observacao, criado_por, criado_em, status)
@@ -176,13 +192,31 @@ def tela_tratativa():
             email_setor, setor_nome, empresa or "—", tipo_final,
             nome_parceiro.strip(), numero_nota.strip(),
             tipo_nota or "—", valor.strip(), observacao.strip(),
-            st.session_state.usuario)
+            st.session_state.usuario, anexos=anexos)
+
+        # Envia a mesma solicitação (com anexo) em cópia para os setores marcados
+        copias_enviadas = []
+        for n in copia_sel:
+            em = mapa_email.get(n)
+            if em and em != email_setor:
+                try:
+                    email_solicitacao_tratativa(
+                        em, setor_nome, empresa or "—", tipo_final,
+                        nome_parceiro.strip(), numero_nota.strip(),
+                        tipo_nota or "—", valor.strip(), observacao.strip(),
+                        st.session_state.usuario, anexos=anexos)
+                    copias_enviadas.append(n)
+                except:
+                    pass
 
         for k in ["trat_tipo_nota","trat_empresa","trat_tipo","trat_outros"]:
             st.session_state.pop(k, None)
 
         if ok:
-            st.success(f"✅ Solicitacao enviada para {setor_nome} ({email_setor})!")
+            msg = f"✅ Solicitacao enviada para {setor_nome} ({email_setor})!"
+            if copias_enviadas:
+                msg += f" Em cópia: {', '.join(copias_enviadas)}."
+            st.success(msg)
             st.balloons()
         else:
             st.warning("Solicitacao registrada mas houve erro no envio do e-mail.")
