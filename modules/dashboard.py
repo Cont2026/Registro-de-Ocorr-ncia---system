@@ -192,6 +192,31 @@ def escrever_aba_performance(writer, df_perf):
                           color=("041747" if nivel == "Atenção" else "FFFFFF"), size=11)
     ajustar_colunas(ws)
 
+def escrever_aba_tabela(writer, sheet_name, titulo, df):
+    ws = writer.book.create_sheet(sheet_name)
+    writer.sheets[sheet_name] = ws
+    inserir_cabecalho_relatorio(ws, titulo)
+    start = 7
+    df.to_excel(writer, index=False, sheet_name=sheet_name, startrow=start-1)
+    n_cols = len(df.columns)
+    for col_num in range(1, n_cols + 1):
+        cell = ws.cell(row=start, column=col_num)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = HEADER_ALIGN
+        cell.border = BORDER
+    ws.row_dimensions[start].height = 28
+    for i in range(len(df)):
+        row_n = start + 1 + i
+        fill = ALT_FILL if (row_n % 2 == 0) else PatternFill("solid", fgColor="FFFFFF")
+        for col_num in range(1, n_cols + 1):
+            cell = ws.cell(row=row_n, column=col_num)
+            cell.font = DATA_FONT
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.fill = fill
+            cell.border = BORDER
+    ajustar_colunas(ws)
+
 def tela_dashboard():
     st.title("📊 Dashboard")
     st.markdown("---")
@@ -382,6 +407,27 @@ def tela_dashboard():
     df_ee = df_f.groupby("empresa").size().reset_index(name="Quantidade").rename(columns={"empresa":"Empresa"})
     df_ste = df_f.groupby("status").size().reset_index(name="Quantidade").rename(columns={"status":"Status"})
 
+    # Notificações por protocolo para o Excel (total + quebra por tipo)
+    df_notif_total = None
+    df_notif_tipo = None
+    if notifs_raw:
+        dft = pd.DataFrame(notifs_raw, columns=["protocolo", "tipo", "enviado_em"])
+        dft["protocolo"] = dft["protocolo"].replace("", None).fillna("(sem protocolo)")
+        dft["tipo_label"] = dft["tipo"].map(lambda t: LABELS_NOTIF.get(t, t) if t else "—")
+        df_notif_total = (
+            dft.groupby("protocolo")
+            .agg(total=("tipo", "size"), ultima=("enviado_em", "max"))
+            .reset_index()
+            .rename(columns={"protocolo": "Protocolo", "total": "Total de Notificações", "ultima": "Última Notificação"})
+            .sort_values("Total de Notificações", ascending=False)
+        )
+        piv = dft.pivot_table(index="protocolo", columns="tipo_label",
+                              values="enviado_em", aggfunc="count", fill_value=0).reset_index()
+        piv = piv.rename(columns={"protocolo": "Protocolo"})
+        cols_tipos = [c for c in piv.columns if c != "Protocolo"]
+        piv["Total"] = piv[cols_tipos].sum(axis=1)
+        df_notif_tipo = piv.sort_values("Total", ascending=False)
+
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         df_export.to_excel(writer, index=False, sheet_name="Chamados", startrow=6)
@@ -428,6 +474,12 @@ def tela_dashboard():
         # Aba de Performance por Setor
         if not df_perf.empty:
             escrever_aba_performance(writer, df_perf)
+
+        # Abas de Notificações por Protocolo
+        if df_notif_total is not None and not df_notif_total.empty:
+            escrever_aba_tabela(writer, "Notificações", "ROC — Notificações por Protocolo", df_notif_total)
+        if df_notif_tipo is not None and not df_notif_tipo.empty:
+            escrever_aba_tabela(writer, "Notif. por Tipo", "ROC — Notificações por Tipo", df_notif_tipo)
 
     buffer.seek(0)
     st.download_button(
