@@ -4,7 +4,8 @@ import calendar
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from database.connection import run_query
-from modules.email_service import email_novo_chamado, email_atualizacao_chamado, email_conclusao_chamado, email_nova_mensagem
+from modules.email_service import (email_novo_chamado, email_atualizacao_chamado,
+    email_conclusao_chamado, email_nova_mensagem, email_setor_em_copia)
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
 
@@ -36,11 +37,39 @@ def carregar_tipos():
 def carregar_tipos_nota():
     return [r[0] for r in run_query("SELECT nome FROM tipos_nota WHERE ativo=1 ORDER BY nome", fetch=True)]
 
+@st.cache_data(ttl=300)
+def carregar_setores_disponiveis(excluir=None):
+    rows = run_query("""SELECT DISTINCT setor_nome FROM usuarios
+        WHERE perfil='setor' AND ativo=1 AND setor_nome IS NOT NULL AND setor_nome <> ''
+        ORDER BY setor_nome""", fetch=True)
+    lista = [r[0] for r in rows] if rows else []
+    if excluir:
+        lista = [s for s in lista if s != excluir]
+    return lista
+
+def carregar_copias(protocolo):
+    rows = run_query("SELECT setor FROM chamados_copia WHERE protocolo=%s ORDER BY setor", (protocolo,), fetch=True)
+    return [r[0] for r in rows] if rows else []
+
+def salvar_copias(protocolo, setores):
+    run_query("DELETE FROM chamados_copia WHERE protocolo=%s", (protocolo,))
+    for s in setores:
+        if s and s.strip():
+            run_query("INSERT INTO chamados_copia (protocolo, setor) VALUES (%s, %s)", (protocolo, s.strip()))
+
 @st.cache_data(ttl=60)
 def carregar_meus_chamados(setor):
     return run_query("""SELECT protocolo, tipo_inconsistencia, empresa, status, prioridade,
         nome_parceiro, numero_nota, aberto_em, solicitante, financeiro_baixado
         FROM chamados WHERE setor=%s ORDER BY aberto_em DESC""", (setor,), fetch=True)
+
+@st.cache_data(ttl=60)
+def carregar_chamados_acompanhamento(setor):
+    return run_query("""SELECT c.protocolo, c.tipo_inconsistencia, c.empresa, c.status, c.prioridade,
+        c.nome_parceiro, c.numero_nota, c.aberto_em, c.solicitante, c.financeiro_baixado, c.setor
+        FROM chamados c
+        JOIN chamados_copia cc ON cc.protocolo = c.protocolo
+        WHERE cc.setor = %s ORDER BY c.aberto_em DESC""", (setor,), fetch=True)
 
 @st.cache_data(ttl=60)
 def carregar_todos_chamados():
@@ -55,6 +84,20 @@ def buscar_email_contabilidade():
 def buscar_email_setor(setor_nome):
     rows = run_query("SELECT email FROM usuarios WHERE setor_nome=%s AND ativo=1 LIMIT 1", (setor_nome,), fetch=True)
     return rows[0][0] if rows else None
+
+def emails_interessados(protocolo, setor_chamado, excluir_email=None):
+    """Contabilidade (sempre) + setor dono + setores em cópia, menos quem está enviando."""
+    emails = set()
+    ec = buscar_email_contabilidade()
+    if ec: emails.add(ec)
+    es = buscar_email_setor(setor_chamado)
+    if es: emails.add(es)
+    for s in carregar_copias(protocolo):
+        e = buscar_email_setor(s)
+        if e: emails.add(e)
+    if excluir_email:
+        emails.discard(excluir_email)
+    return emails
 
 def carregar_mensagens(protocolo):
     return run_query("SELECT autor, perfil, mensagem, enviado_em FROM mensagens WHERE chamado_protocolo=%s ORDER BY enviado_em ASC", (protocolo,), fetch=True)
@@ -92,11 +135,8 @@ def exibir_chat(protocolo, setor_chamado):
             if nova_msg.strip():
                 enviar_mensagem_db(protocolo, st.session_state.usuario, st.session_state.perfil, nova_msg.strip())
                 try:
-                    if st.session_state.perfil == "contabilidade":
-                        email_dest = buscar_email_setor(setor_chamado)
-                    else:
-                        email_dest = buscar_email_contabilidade()
-                    if email_dest:
+                    destinos = emails_interessados(protocolo, setor_chamado, st.session_state.get("email"))
+                    for email_dest in destinos:
                         email_nova_mensagem(email_dest, protocolo, st.session_state.usuario, nova_msg.strip())
                 except:
                     pass
@@ -254,6 +294,8 @@ def tela_novo_chamado():
                 st.rerun()
     fin_baixado = st.session_state.get("sel_fin", None)
 
+    setores_copia_disp = carregar_setores_disponiveis(st.session_state.setor)
+
     st.markdown("---")
     with st.form("form_chamado", clear_on_submit=True):
         col1, col2 = st.columns(2)
@@ -263,6 +305,8 @@ def tela_novo_chamado():
         with col2:
             numero_nota = st.text_input("📄 Número da Nota *")
             valor = st.text_input("💰 Valor *", placeholder="0,00")
+        copia_sel = st.multiselect("👥 Setores em cópia (opcional)", setores_copia_disp,
+            help="Os setores marcados recebem e-mail e podem acompanhar e responder este chamado.")
         arquivo = st.file_uploader("📎 Anexo (opcional)", type=["pdf","png","jpg","xlsx","xml"])
         observacao = st.text_area("📝 Observação Complementar", placeholder="Informações adicionais...")
         enviar = st.form_submit_button("📨 Enviar Chamado", use_container_width=True)
@@ -317,6 +361,17 @@ def tela_novo_chamado():
              valor_float, observacao.strip(), arquivo_nome, "Aberto",
              datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), fin_baixado))
 
+        # Salva setores em cópia e notifica
+        if copia_sel:
+            salvar_copias(protocolo, copia_sel)
+            for s in copia_sel:
+                try:
+                    email_s = buscar_email_setor(s)
+                    if email_s:
+                        email_setor_em_copia(email_s, protocolo, s, st.session_state.setor)
+                except:
+                    pass
+
         try:
             email_cont = buscar_email_contabilidade()
             if email_cont:
@@ -349,6 +404,11 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
         c1.markdown(f"**Fin. Baixado:** {fin_baixado or '—'}")
         st.markdown(f"**Aberto em:** {aberto_em}")
 
+        copias = carregar_copias(protocolo)
+        if copias:
+            st.markdown(f"**👥 Em cópia:** {', '.join(copias)}")
+
+        # Atualizar status (somente contabilidade)
         if eh_contabilidade:
             st.markdown("---")
             novo_status = st.selectbox("Atualizar status", ["Aberto","Em andamento","Resolvido","Cancelado"],
@@ -371,11 +431,33 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
                 st.success("✅ Atualizado!")
                 st.rerun()
 
+        # Editar setores em cópia (contabilidade ou o setor que abriu)
+        eh_dono = (st.session_state.perfil != "contabilidade" and st.session_state.setor == setor)
+        if eh_contabilidade or eh_dono:
+            st.markdown("---")
+            setores_disp = carregar_setores_disponiveis(setor)
+            default_copias = [c for c in copias if c in setores_disp]
+            novas_copias = st.multiselect("👥 Setores em cópia", setores_disp,
+                default=default_copias, key=f"copia_{protocolo}")
+            if st.button("💾 Salvar cópia", key=f"savecopia_{protocolo}"):
+                adicionados = set(novas_copias) - set(copias)
+                salvar_copias(protocolo, novas_copias)
+                for s in adicionados:
+                    try:
+                        email_s = buscar_email_setor(s)
+                        if email_s:
+                            email_setor_em_copia(email_s, protocolo, s, setor)
+                    except:
+                        pass
+                st.cache_data.clear()
+                st.success("✅ Cópia atualizada!")
+                st.rerun()
+
         st.markdown("---")
         exibir_chat(protocolo, setor)
 
 def tela_meus_chamados(protocolo_aberto=None):
-    st.title("📋 Meus Chamados")
+    st.title("📋 Minhas Solicitações")
     st.markdown("---")
     rows = carregar_meus_chamados(st.session_state.setor)
     if not rows:
@@ -384,6 +466,19 @@ def tela_meus_chamados(protocolo_aberto=None):
     for protocolo, tipo, empresa, status, prioridade, parceiro, nf, aberto_em, solicitante, fin_baixado in rows:
         exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf,
                        aberto_em, solicitante, fin_baixado, st.session_state.setor,
+                       eh_contabilidade=False, protocolo_aberto=protocolo_aberto)
+
+def tela_acompanhamento(protocolo_aberto=None):
+    st.title("👀 Solicitações em Acompanhamento")
+    st.markdown("Chamados em que seu setor foi incluído em cópia.")
+    st.markdown("---")
+    rows = carregar_chamados_acompanhamento(st.session_state.setor)
+    if not rows:
+        st.info("Nenhum chamado em acompanhamento.")
+        return
+    for protocolo, tipo, empresa, status, prioridade, parceiro, nf, aberto_em, solicitante, fin_baixado, setor_dono in rows:
+        exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf,
+                       aberto_em, solicitante, fin_baixado, setor_dono,
                        eh_contabilidade=False, protocolo_aberto=protocolo_aberto)
 
 def tela_todos_chamados(protocolo_aberto=None):
