@@ -100,11 +100,18 @@ def emails_interessados(protocolo, setor_chamado, excluir_email=None):
     return emails
 
 def carregar_mensagens(protocolo):
-    return run_query("SELECT autor, perfil, mensagem, enviado_em FROM mensagens WHERE chamado_protocolo=%s ORDER BY enviado_em ASC", (protocolo,), fetch=True)
+    return run_query("SELECT autor, perfil, mensagem, enviado_em, anexo_nome, anexo_dados FROM mensagens WHERE chamado_protocolo=%s ORDER BY enviado_em ASC", (protocolo,), fetch=True)
 
-def enviar_mensagem_db(protocolo, autor, perfil, mensagem):
-    run_query("INSERT INTO mensagens (chamado_protocolo,autor,perfil,mensagem,enviado_em) VALUES (%s,%s,%s,%s,%s)",
-              (protocolo, autor, perfil, mensagem, datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S")))
+def enviar_mensagem_db(protocolo, autor, perfil, mensagem, anexo_nome=None, anexo_dados=None):
+    run_query("INSERT INTO mensagens (chamado_protocolo,autor,perfil,mensagem,enviado_em,anexo_nome,anexo_dados) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+              (protocolo, autor, perfil, mensagem, datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), anexo_nome, anexo_dados))
+
+def _mime_imagem(nome):
+    n = (nome or "").lower()
+    if n.endswith(".png"): return "image/png"
+    if n.endswith(".gif"): return "image/gif"
+    if n.endswith(".webp"): return "image/webp"
+    return "image/jpeg"
 
 def exibir_chat(protocolo, setor_chamado):
     st.markdown("#### 💬 Acompanhamento")
@@ -112,18 +119,23 @@ def exibir_chat(protocolo, setor_chamado):
     if not mensagens:
         st.markdown("<div style='background:#f9f9f9;border-radius:10px;padding:16px;text-align:center;color:#999;font-size:13px;'>Nenhuma mensagem ainda.</div>", unsafe_allow_html=True)
     else:
-        for autor, perfil, mensagem, enviado_em in mensagens:
+        for autor, perfil, mensagem, enviado_em, anexo_nome, anexo_dados in mensagens:
             is_cont = perfil == "contabilidade"
             alinha = "flex-end" if is_cont else "flex-start"
             bg = "#041747" if is_cont else "#F0F4FF"
             cor_txt = "white" if is_cont else "#041747"
             cor_meta = "rgba(255,255,255,0.7)" if is_cont else "#666"
             border_r = "14px 14px 4px 14px" if is_cont else "14px 14px 14px 4px"
+            txt_html = f"<p style='font-size:13px;margin:0;'>{mensagem}</p>" if mensagem else ""
+            img_html = ""
+            if anexo_dados:
+                mime = _mime_imagem(anexo_nome)
+                img_html = f"<img src='data:{mime};base64,{anexo_dados}' style='max-width:100%;border-radius:8px;margin-top:8px;display:block;'/>"
             st.markdown(f"""
             <div style='display:flex;justify-content:{alinha};margin-bottom:10px;'>
                 <div style='max-width:75%;background:{bg};color:{cor_txt};border-radius:{border_r};padding:10px 14px;box-shadow:0 1px 4px rgba(0,0,0,0.08);'>
                     <p style='font-size:11px;font-weight:700;margin:0 0 4px;color:{cor_meta};'>{autor}</p>
-                    <p style='font-size:13px;margin:0;'>{mensagem}</p>
+                    {txt_html}{img_html}
                     <p style='font-size:10px;margin:6px 0 0;color:{cor_meta};text-align:right;'>{enviado_em}</p>
                 </div>
             </div>""", unsafe_allow_html=True)
@@ -131,18 +143,30 @@ def exibir_chat(protocolo, setor_chamado):
     st.markdown("<br>", unsafe_allow_html=True)
     with st.form(key=f"chat_{protocolo}", clear_on_submit=True):
         nova_msg = st.text_area("Nova mensagem", placeholder="Digite sua mensagem...", height=80, label_visibility="collapsed")
+        img = st.file_uploader("🖼️ Anexar imagem (opcional)", type=["png","jpg","jpeg","gif","webp"], key=f"chat_img_{protocolo}")
         if st.form_submit_button("📨 Enviar", use_container_width=True):
-            if nova_msg.strip():
-                enviar_mensagem_db(protocolo, st.session_state.usuario, st.session_state.perfil, nova_msg.strip())
+            tem_texto = bool(nova_msg.strip())
+            tem_img = img is not None
+            if not tem_texto and not tem_img:
+                st.warning("Digite uma mensagem ou anexe uma imagem antes de enviar.")
+            else:
+                anexo_nome = None
+                anexo_dados = None
+                if tem_img:
+                    import base64
+                    anexo_nome = img.name
+                    anexo_dados = base64.b64encode(img.getvalue()).decode("utf-8")
+                enviar_mensagem_db(protocolo, st.session_state.usuario, st.session_state.perfil,
+                                   nova_msg.strip(), anexo_nome, anexo_dados)
                 try:
+                    texto_email = nova_msg.strip() if tem_texto else "[imagem anexada]"
                     destinos = emails_interessados(protocolo, setor_chamado, st.session_state.get("email"))
                     for email_dest in destinos:
-                        email_nova_mensagem(email_dest, protocolo, st.session_state.usuario, nova_msg.strip())
+                        email_nova_mensagem(email_dest, protocolo, st.session_state.usuario, texto_email)
                 except:
                     pass
                 st.rerun()
-            else:
-                st.warning("Digite uma mensagem antes de enviar.")
+
 
 def registrar_fechamento(parcial):
     tipo_final = f"{TIPO_FECHAMENTO} - {parcial}"
