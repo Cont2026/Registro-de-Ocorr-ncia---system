@@ -176,3 +176,25 @@ def email_nova_mensagem(email_destinatario, protocolo, autor, mensagem):
     </div>
     """
     return enviar_email(email_destinatario, assunto, corpo, protocolo, "nova_mensagem")
+
+def email_setor_em_copia(email_setor, protocolo, setor, aberto_por=""):
+    assunto = f"ROC — Você foi incluído no chamado {protocolo}"
+    info_aberto = tabela_row("Aberto por", aberto_por, True) if aberto_por else ""
+    corpo = f"""
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;padding:20px;border-radius:12px;">
+        {cabecalho_email()}
+        <div style="background:white;padding:24px;border-radius:0 0 8px 8px;border:1px solid #e8e8e8;">
+            <h2 style="color:#041747;font-size:18px;margin:0 0 8px;">👥 Você está em cópia neste chamado</h2>
+            <p style="color:#555;font-size:14px;margin:0 0 16px;">
+            O setor <strong>{setor}</strong> foi incluído como acompanhante do chamado abaixo.
+            Você pode visualizar todos os detalhes e responder pelo chat interno.</p>
+            <table style="width:100%;border-collapse:collapse;">
+                {tabela_row("Protocolo", protocolo)}
+                {info_aberto}
+            </table>
+            {botao_chamado(protocolo)}
+        </div>
+        {rodape_email()}
+    </div>
+    """
+    return enviar_email(email_setor, assunto, corpo, protocolo, "copia_chamado")
