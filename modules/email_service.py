@@ -1,6 +1,8 @@
 import streamlit as st
 import urllib.request
 import json
+import base64
+import mimetypes
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from database.connection import run_query
@@ -22,7 +24,8 @@ def registrar_notificacao(protocolo, destinatario, assunto, tipo, sucesso):
     except:
         pass
 
-def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral"):
+def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral", anexos=None):
+    """anexos: lista de tuplas (nome_arquivo, conteudo_bytes)."""
     try:
         api_key = st.secrets["SENDGRID_API_KEY"]
         remetente = st.secrets["REMETENTE_EMAIL"]
@@ -34,6 +37,21 @@ def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral"
             "subject": assunto,
             "content": [{"type": "text/html", "value": corpo_html}]
         }
+
+        if anexos:
+            lista_anexos = []
+            for nome_arquivo, conteudo in anexos:
+                if not conteudo:
+                    continue
+                mime, _ = mimetypes.guess_type(nome_arquivo)
+                lista_anexos.append({
+                    "content": base64.b64encode(conteudo).decode("utf-8"),
+                    "filename": nome_arquivo,
+                    "type": mime or "application/octet-stream",
+                    "disposition": "attachment"
+                })
+            if lista_anexos:
+                dados["attachments"] = lista_anexos
 
         req = urllib.request.Request(
             "https://api.sendgrid.com/v3/mail/send",
