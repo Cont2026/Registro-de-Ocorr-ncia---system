@@ -20,6 +20,16 @@ CORES_NIVEL = {
 }
 CORES_NIVEL_XL = {k: v.lstrip("#") for k, v in CORES_NIVEL.items()}
 
+LABELS_NOTIF = {
+    "novo_chamado": "Novo chamado",
+    "nova_mensagem": "Mensagens (chat por e-mail)",
+    "atualizacao_status": "Atualização de status",
+    "conclusao": "Conclusão",
+    "solicitacao_tratativa": "Solicitação de tratativa",
+    "copia_chamado": "Cópia em chamado",
+    "alerta_fechamento": "Alerta de fechamento",
+}
+
 def classificar_performance(qtd):
     if qtd <= 3:
         return "Dentro do esperado", "100%", "Processo controlado e aderente"
@@ -51,15 +61,8 @@ def carregar_chamados():
     """, fetch=True)
 
 @st.cache_data(ttl=30)
-def carregar_notificacoes_por_protocolo():
-    return run_query("""
-        SELECT COALESCE(NULLIF(protocolo, ''), '(sem protocolo)') AS protocolo,
-               COUNT(*) AS total,
-               MAX(enviado_em) AS ultima
-        FROM notificacoes
-        GROUP BY COALESCE(NULLIF(protocolo, ''), '(sem protocolo)')
-        ORDER BY total DESC, ultima DESC
-    """, fetch=True)
+def carregar_notificacoes_raw():
+    return run_query("SELECT protocolo, tipo, enviado_em FROM notificacoes", fetch=True)
 
 @st.cache_data(ttl=30)
 def carregar_chamados_completo():
@@ -327,17 +330,40 @@ def tela_dashboard():
         st.dataframe(tabela_entregas, use_container_width=True, hide_index=True)
         st.caption(f"Total de entregas: {len(tabela_entregas)}")
 
-    # === Consolidado de notificações por protocolo ===
+    # === Consolidado de notificações por protocolo (com filtro de tipo) ===
     st.markdown("---")
     st.markdown("##### 🔔 Notificações por Protocolo")
-    st.caption("Total de notificações enviadas (de todos os tipos), agrupadas por protocolo.")
-    notifs = carregar_notificacoes_por_protocolo()
-    if not notifs:
+    st.caption("Notificações enviadas, agrupadas por protocolo. Use o filtro para ver só um tipo (ex: mensagens trocadas por e-mail).")
+    notifs_raw = carregar_notificacoes_raw()
+    if not notifs_raw:
         st.info("Nenhuma notificação registrada ainda.")
     else:
-        df_notif = pd.DataFrame(notifs, columns=["Protocolo", "Total de Notificações", "Última Notificação"])
-        st.dataframe(df_notif, use_container_width=True, hide_index=True)
-        st.caption(f"Protocolos com notificação: {len(df_notif)} · Total geral: {int(df_notif['Total de Notificações'].sum())}")
+        dfn = pd.DataFrame(notifs_raw, columns=["protocolo", "tipo", "enviado_em"])
+        dfn["protocolo"] = dfn["protocolo"].replace("", None)
+        dfn["protocolo"] = dfn["protocolo"].fillna("(sem protocolo)")
+
+        tipos_presentes = sorted([t for t in dfn["tipo"].dropna().unique().tolist()])
+        opcoes_label = ["Todas"] + [LABELS_NOTIF.get(t, t) for t in tipos_presentes]
+        label_para_tipo = {LABELS_NOTIF.get(t, t): t for t in tipos_presentes}
+
+        filtro_notif = st.selectbox("Filtrar por tipo de notificação", opcoes_label, key="filtro_notif_tipo")
+        if filtro_notif != "Todas":
+            dfn = dfn[dfn["tipo"] == label_para_tipo.get(filtro_notif, filtro_notif)]
+
+        if dfn.empty:
+            st.info("Nenhuma notificação desse tipo.")
+        else:
+            cons = dfn.groupby("protocolo").agg(
+                total=("tipo", "size"),
+                ultima=("enviado_em", "max")
+            ).reset_index().sort_values(["total", "ultima"], ascending=[False, False])
+            df_notif = cons.rename(columns={
+                "protocolo": "Protocolo",
+                "total": "Total de Notificações",
+                "ultima": "Última Notificação"
+            })
+            st.dataframe(df_notif, use_container_width=True, hide_index=True)
+            st.caption(f"Protocolos: {len(df_notif)} · Total geral: {int(df_notif['Total de Notificações'].sum())}")
 
     st.markdown("---")
     st.markdown("##### 📥 Exportar dados")
