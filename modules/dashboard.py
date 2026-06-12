@@ -51,6 +51,17 @@ def carregar_chamados():
     """, fetch=True)
 
 @st.cache_data(ttl=30)
+def carregar_notificacoes_por_protocolo():
+    return run_query("""
+        SELECT COALESCE(NULLIF(protocolo, ''), '(sem protocolo)') AS protocolo,
+               COUNT(*) AS total,
+               MAX(enviado_em) AS ultima
+        FROM notificacoes
+        GROUP BY COALESCE(NULLIF(protocolo, ''), '(sem protocolo)')
+        ORDER BY total DESC, ultima DESC
+    """, fetch=True)
+
+@st.cache_data(ttl=30)
 def carregar_chamados_completo():
     return run_query("""
         SELECT protocolo, setor, empresa, tipo_inconsistencia,
@@ -315,6 +326,18 @@ def tela_dashboard():
         )
         st.dataframe(tabela_entregas, use_container_width=True, hide_index=True)
         st.caption(f"Total de entregas: {len(tabela_entregas)}")
+
+    # === Consolidado de notificações por protocolo ===
+    st.markdown("---")
+    st.markdown("##### 🔔 Notificações por Protocolo")
+    st.caption("Total de notificações enviadas (de todos os tipos), agrupadas por protocolo.")
+    notifs = carregar_notificacoes_por_protocolo()
+    if not notifs:
+        st.info("Nenhuma notificação registrada ainda.")
+    else:
+        df_notif = pd.DataFrame(notifs, columns=["Protocolo", "Total de Notificações", "Última Notificação"])
+        st.dataframe(df_notif, use_container_width=True, hide_index=True)
+        st.caption(f"Protocolos com notificação: {len(df_notif)} · Total geral: {int(df_notif['Total de Notificações'].sum())}")
 
     st.markdown("---")
     st.markdown("##### 📥 Exportar dados")
