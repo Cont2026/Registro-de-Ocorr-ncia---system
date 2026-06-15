@@ -478,12 +478,13 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
                     resolvido_em=CASE WHEN %s='Resolvido' THEN %s ELSE resolvido_em END WHERE protocolo=%s""",
                     (novo_status, agora, novo_status, agora, protocolo))
                 try:
-                    email_dest = buscar_email_setor(setor)
+                    destinos = emails_interessados(protocolo, setor)
                     if novo_status == "Resolvido":
-                        email_cont = buscar_email_contabilidade()
-                        email_conclusao_chamado(email_cont, email_dest, protocolo, tipo, agora)
-                    elif email_dest:
-                        email_atualizacao_chamado(email_dest, protocolo, novo_status, setor)
+                        for ed in destinos:
+                            email_conclusao_chamado(None, ed, protocolo, tipo, agora)
+                    else:
+                        for ed in destinos:
+                            email_atualizacao_chamado(ed, protocolo, novo_status, setor)
                 except:
                     pass
                 st.cache_data.clear()
