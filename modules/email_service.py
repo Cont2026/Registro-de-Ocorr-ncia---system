@@ -103,7 +103,7 @@ def tabela_row(label, valor, alt=False):
         <td style="padding:8px;background:{bg};color:#333;">{valor}</td>
     </tr>"""
 
-def email_novo_chamado(email_contabilidade, protocolo, setor, tipo, prioridade, parceiro, numero_nota, solicitante):
+def email_novo_chamado(email_contabilidade, protocolo, setor, tipo, prioridade, parceiro, numero_nota, solicitante, anexos=None):
     assunto = f"ROC — Novo Chamado {protocolo}"
     cor_prio = "#ef4444" if prioridade == "Urgente" else "#22c55e"
     corpo = f"""
@@ -125,7 +125,7 @@ def email_novo_chamado(email_contabilidade, protocolo, setor, tipo, prioridade, 
         {rodape_email()}
     </div>
     """
-    return enviar_email(email_contabilidade, assunto, corpo, protocolo, "novo_chamado")
+    return enviar_email(email_contabilidade, assunto, corpo, protocolo, "novo_chamado", anexos=anexos)
 
 def email_atualizacao_chamado(email_setor, protocolo, novo_status, setor=""):
     cores = {"Aberto":"#ef4444","Em andamento":"#f59e0b","Resolvido":"#22c55e","Cancelado":"#6b7280"}
