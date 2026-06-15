@@ -168,26 +168,32 @@ def exibir_chat(protocolo, setor_chamado):
                 st.rerun()
 
 
-def registrar_fechamento(parcial):
+def registrar_fechamento(parcial, observacao="", anexo_nome=None, anexo_bytes=None):
     tipo_final = f"{TIPO_FECHAMENTO} - {parcial}"
     total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
     protocolo = f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-{str(total+1).zfill(4)}"
 
+    anexo_dados = None
+    if anexo_bytes:
+        import base64
+        anexo_dados = base64.b64encode(anexo_bytes).decode("utf-8")
+
     run_query("""INSERT INTO chamados (protocolo,setor,empresa,tipo_inconsistencia,prioridade,nf_retorna,
         solicitante,nome_parceiro,numero_nota,tipo_nota,data_entrada,data_saida,data_negociacao,
-        valor,observacao,arquivo_nome,status,aberto_em,financeiro_baixado)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+        valor,observacao,arquivo_nome,status,aberto_em,financeiro_baixado,anexo_dados)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
         (protocolo, st.session_state.setor, "", tipo_final, "Normal", "",
          st.session_state.usuario, "", "", TIPO_FECHAMENTO,
          None, None, None,
-         None, "", None, "Aberto",
-         datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), ""))
+         None, (observacao or "").strip(), anexo_nome, "Aberto",
+         datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), "", anexo_dados))
 
     try:
         email_cont = buscar_email_contabilidade()
         if email_cont:
+            anexos = [(anexo_nome, anexo_bytes)] if anexo_bytes else None
             email_novo_chamado(email_cont, protocolo, st.session_state.setor,
-                tipo_final, "Normal", "", "", st.session_state.usuario)
+                tipo_final, "Normal", "", "", st.session_state.usuario, anexos=anexos)
     except:
         pass
 
@@ -236,12 +242,22 @@ def tela_novo_chamado():
         parcial = st.session_state.get("sel_parcial", None)
 
         st.markdown("---")
+        obs_fech = st.text_area("📝 Observação (opcional)", placeholder="Informações adicionais sobre o fechamento...", key="fech_obs")
+        arq_fech = st.file_uploader("📎 Anexo de documentos (opcional)",
+            type=["pdf","png","jpg","jpeg","xlsx","xml","docx"], key="fech_arquivo")
+
+        st.markdown("---")
         if st.button("📨 Enviar Chamado", use_container_width=True, key="enviar_fechamento"):
             if not parcial:
                 st.error("⚠️ Selecione o fechamento parcial.")
                 return
-            protocolo = registrar_fechamento(parcial)
-            for k in ["sel_tipo_nota", "sel_parcial"]:
+            anexo_nome = None
+            anexo_bytes = None
+            if arq_fech is not None:
+                anexo_nome = arq_fech.name
+                anexo_bytes = arq_fech.getvalue()
+            protocolo = registrar_fechamento(parcial, obs_fech, anexo_nome, anexo_bytes)
+            for k in ["sel_tipo_nota", "sel_parcial", "fech_obs", "fech_arquivo"]:
                 st.session_state.pop(k, None)
             st.cache_data.clear()
             st.success(f"✅ Chamado registrado! Protocolo: **{protocolo}**")
@@ -431,6 +447,25 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
         copias = carregar_copias(protocolo)
         if copias:
             st.markdown(f"**👥 Em cópia:** {', '.join(copias)}")
+
+        # Observação e anexo (se houver)
+        det = run_query("SELECT observacao, arquivo_nome, anexo_dados FROM chamados WHERE protocolo=%s",
+                        (protocolo,), fetch=True)
+        if det:
+            obs_txt, arq_nome, arq_dados = det[0]
+            if obs_txt:
+                st.markdown(f"**📝 Observação:** {obs_txt}")
+            if arq_dados:
+                import base64
+                try:
+                    st.download_button("📎 Baixar anexo" + (f" ({arq_nome})" if arq_nome else ""),
+                        data=base64.b64decode(arq_dados),
+                        file_name=arq_nome or f"{protocolo}_anexo",
+                        key=f"dl_{protocolo}")
+                except:
+                    st.caption("📎 Anexo disponível, mas não foi possível carregá-lo.")
+            elif arq_nome:
+                st.caption(f"📎 Anexo: {arq_nome}")
 
         # Atualizar status (somente contabilidade)
         if eh_contabilidade:
