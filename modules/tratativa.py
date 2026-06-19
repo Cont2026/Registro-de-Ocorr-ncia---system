@@ -1,16 +1,12 @@
 import streamlit as st
+import base64
 from database.connection import run_query
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from modules.email_service import enviar_email
+from modules.email_service import enviar_email, email_novo_chamado, email_setor_em_copia
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
-
-def get_url_base():
-    try:
-        return st.secrets.get("APP_URL", "https://registro-de-ocorr-ncia---system.streamlit.app")
-    except:
-        return "https://registro-de-ocorr-ncia---system.streamlit.app"
+TIPO_FOLHA = "Folha de Pagamento"
 
 def buscar_setores():
     rows = run_query(
@@ -34,64 +30,41 @@ def filtrar_inconsistencias_trat(tipos_lista, tipo_mov):
     vinc_do_tipo = mapa.get(tipo_mov, set())
     return [inc for inc in tipos_lista if (inc in vinc_do_tipo) or (inc not in com_vinculo)]
 
-def email_solicitacao_tratativa(email_setor, setor_nome, empresa, tipo, parceiro, numero_nota, tipo_nota, valor, observacao, criado_por, anexos=None, nu_financeiro="", nu_nota=""):
-    url = get_url_base()
-    assunto = "ROC — Solicitacao de Tratativa - Origem Contabilidade"
-    aviso_anexo = ""
-    if anexos:
-        aviso_anexo = "<p style='font-size:12px;color:#041747;margin:16px 0 0;'>📎 Esta solicitação contém anexo(s).</p>"
-    linha_nu_fin = f"<tr><td style='padding:8px;font-weight:600;color:#041747;'>Nº Único Financeiro</td><td style='padding:8px;color:#333;'>{nu_financeiro}</td></tr>" if nu_financeiro else ""
-    linha_nu_nota = f"<tr><td style='padding:8px;background:#f5f7fa;font-weight:600;color:#041747;'>Nº Único da Nota</td><td style='padding:8px;color:#333;'>{nu_nota}</td></tr>" if nu_nota else ""
-    corpo = f"""
-    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;padding:20px;border-radius:12px;">
-        <div style="background:#041747;padding:20px;border-radius:8px 8px 0 0;text-align:center;">
-            <h1 style="color:#FAC318;font-size:24px;margin:0;letter-spacing:4px;">ROC</h1>
-            <p style="color:rgba(255,255,255,0.7);font-size:12px;margin:4px 0 0;">
-            Registro de Ocorrencias Contabeis — Grupo LLE</p>
-        </div>
-        <div style="background:white;padding:24px;border-radius:0 0 8px 8px;border:1px solid #e8e8e8;">
-            <h2 style="color:#041747;font-size:18px;margin:0 0 8px;">📋 Solicitacao de Tratativa</h2>
-            <p style="color:#666;font-size:13px;margin:0 0 20px;">
-            A Contabilidade identificou uma inconsistencia e solicita que seu setor abra um ROC
-            com as informacoes abaixo.</p>
+def buscar_email_setor(nome):
+    r = run_query("SELECT email FROM usuarios WHERE (setor_nome=%s OR nome=%s) AND perfil='setor' AND ativo=1 LIMIT 1",
+                  (nome, nome), fetch=True)
+    return r[0][0] if r and r[0] else None
 
-            <table style="width:100%;border-collapse:collapse;">
-                <tr><td style="padding:8px;background:#f5f7fa;font-weight:600;color:#041747;width:40%;">Setor Responsavel</td><td style="padding:8px;color:#333;">{setor_nome}</td></tr>
-                <tr><td style="padding:8px;font-weight:600;color:#041747;">Empresa</td><td style="padding:8px;color:#333;">{empresa or "—"}</td></tr>
-                <tr><td style="padding:8px;background:#f5f7fa;font-weight:600;color:#041747;">Tipo de Inconsistencia</td><td style="padding:8px;color:#333;">{tipo or "—"}</td></tr>
-                <tr><td style="padding:8px;font-weight:600;color:#041747;">Tipo de Movimentacao</td><td style="padding:8px;color:#333;">{tipo_nota or "—"}</td></tr>
-                <tr><td style="padding:8px;background:#f5f7fa;font-weight:600;color:#041747;">Nome do Parceiro</td><td style="padding:8px;color:#333;">{parceiro or "—"}</td></tr>
-                <tr><td style="padding:8px;font-weight:600;color:#041747;">Numero da Nota</td><td style="padding:8px;color:#333;">{numero_nota or "—"}</td></tr>
-                {linha_nu_fin}
-                {linha_nu_nota}
-                <tr><td style="padding:8px;background:#f5f7fa;font-weight:600;color:#041747;">Valor</td><td style="padding:8px;color:#333;">{valor or "—"}</td></tr>
-            </table>
+def gerar_protocolo():
+    total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
+    return f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-{str(total+1).zfill(4)}"
 
-            {"<div style='margin-top:16px;padding:14px;background:#FFF8E7;border-left:4px solid #FAC318;border-radius:4px;'><p style='font-size:13px;font-weight:600;color:#041747;margin:0 0 6px;'>Observacao da Contabilidade:</p><p style='font-size:13px;color:#333;margin:0;'>" + observacao + "</p></div>" if observacao else ""}
-            {aviso_anexo}
+def criar_chamado_tratativa(setor_destino, empresa, tipo_inconsistencia, tipo_nota,
+                            nome_parceiro, numero_nota, valor, observacao,
+                            nu_financeiro, nu_nota, anexo_nome, anexo_bytes, solicitante):
+    """Cria o chamado direto no setor responsavel, ja em 'Em andamento' (aberto pela Contabilidade)."""
+    protocolo = gerar_protocolo()
+    anexo_dados = None
+    if anexo_bytes:
+        anexo_dados = base64.b64encode(anexo_bytes).decode("utf-8")
 
-            <div style="margin-top:24px;padding:16px;background:#EFF6FF;border-radius:8px;border:1px solid #BFDBFE;">
-                <p style="font-size:13px;color:#041747;font-weight:600;margin:0 0 8px;">📌 Instrucoes:</p>
-                <p style="font-size:13px;color:#555;margin:0 0 12px;">
-                Clique no botao abaixo para acessar o ROC e abrir o chamado com as informacoes acima.</p>
-                <div style="text-align:center;">
-                    <a href="{url}" style="background:#041747;color:white;padding:12px 28px;
-                    border-radius:8px;text-decoration:none;font-family:Arial,sans-serif;
-                    font-size:14px;font-weight:600;display:inline-block;">
-                    🔗 Abrir ROC e registrar chamado
-                    </a>
-                </div>
-            </div>
-        </div>
-        <p style="text-align:center;font-size:11px;color:#999;margin-top:12px;">
-        ROC 2026 · Grupo LLE · Solicitacao enviada por: {criado_por}</p>
-    </div>
-    """
-    return enviar_email(email_setor, assunto, corpo, None, "solicitacao_tratativa", anexos=anexos)
+    run_query("""INSERT INTO chamados (protocolo,setor,empresa,tipo_inconsistencia,prioridade,nf_retorna,
+        solicitante,nome_parceiro,numero_nota,tipo_nota,data_entrada,data_saida,data_negociacao,
+        valor,observacao,arquivo_nome,status,aberto_em,financeiro_baixado,anexo_dados,
+        num_unico_financeiro,num_unico_nota)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+        (protocolo, setor_destino, empresa or "", tipo_inconsistencia, "Normal", "",
+         solicitante, (nome_parceiro or "").strip(), (numero_nota or "").strip(), tipo_nota or "",
+         None, None, None,
+         (valor or "").strip(), (observacao or "").strip(), anexo_nome, "Em andamento",
+         datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), "", anexo_dados,
+         (nu_financeiro or "").strip() or None, (nu_nota or "").strip() or None))
+    return protocolo
 
 def tela_tratativa():
-    st.title("📤 Solicitacao de Tratativa")
-    st.markdown("Identifique a inconsistencia e solicite ao setor que abra um ROC.")
+    st.title("📤 Abertura de Chamado pela Contabilidade")
+    st.markdown("A Contabilidade abre o chamado **direto para o setor responsável** — ele aparece em "
+                "**Minhas Solicitações** do setor, já em andamento.")
     st.markdown("---")
 
     setores = buscar_setores()
@@ -108,35 +81,87 @@ def tela_tratativa():
     st.markdown("#### 📧 Setor Responsavel *")
     setor_sel_key = st.selectbox("Selecione o setor", [""] + list(opcoes_setores.keys()), label_visibility="collapsed")
     setor_dados = opcoes_setores.get(setor_sel_key)
-
     nome_resp = setor_dados[0] if setor_dados else None
     nomes_copia = [s[0] for s in setores if s[1] and s[0] != nome_resp]
 
     st.markdown("---")
-
     st.markdown("#### 🗂️ Tipo de Movimentacao")
     tipos_nota_rows = run_query("SELECT nome FROM tipos_nota WHERE ativo=1 ORDER BY nome", fetch=True)
     tipos_movimentacao = [t[0] for t in tipos_nota_rows] if tipos_nota_rows else []
     if "INFORMAR ENTREGÁVEIS" in tipos_movimentacao:
         tipos_movimentacao.remove("INFORMAR ENTREGÁVEIS")
         tipos_movimentacao.insert(0, "INFORMAR ENTREGÁVEIS")
-    if "Folha de Pagamento" in tipos_movimentacao:
-        tipos_movimentacao.remove("Folha de Pagamento")
-        tipos_movimentacao.append("Folha de Pagamento")
+    if TIPO_FOLHA in tipos_movimentacao:
+        tipos_movimentacao.remove(TIPO_FOLHA)
+        tipos_movimentacao.append(TIPO_FOLHA)
     tipo_nota = st.session_state.get("trat_tipo_nota", None)
     if not tipos_movimentacao:
         st.warning("⚠️ Nenhum tipo de movimentacao cadastrado. Cadastre no painel Admin.")
-    else:
-        cols_nota = st.columns(min(len(tipos_movimentacao), 4))
-        for i, op in enumerate(tipos_movimentacao):
-            with cols_nota[i % len(cols_nota)]:
-                ativo = tipo_nota == op
-                if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"trat_nota_{i}",
-                    use_container_width=True, type="primary" if ativo else "secondary"):
-                    st.session_state["trat_tipo_nota"] = op
-                    st.rerun()
+        return
+    cols_nota = st.columns(min(len(tipos_movimentacao), 4))
+    for i, op in enumerate(tipos_movimentacao):
+        with cols_nota[i % len(cols_nota)]:
+            ativo = tipo_nota == op
+            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"trat_nota_{i}",
+                use_container_width=True, type="primary" if ativo else "secondary"):
+                st.session_state["trat_tipo_nota"] = op
+                st.rerun()
     tipo_nota = st.session_state.get("trat_tipo_nota", None)
+    if not tipo_nota:
+        st.info("Selecione o tipo de movimentação para continuar.")
+        _lista_enviados()
+        return
 
+    # ===== FLUXO REDUZIDO: Folha de Pagamento (Setor + Empresa + Anexo + Observacao) =====
+    if tipo_nota == TIPO_FOLHA:
+        st.markdown("#### 🏢 Empresa *")
+        emp_sel = st.session_state.get("trat_folha_emp", None)
+        cols_e = st.columns(5)
+        for i, op in enumerate(["1","2","6","13","14"]):
+            with cols_e[i]:
+                ativo = emp_sel == op
+                if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"trat_folha_emp_{i}",
+                    use_container_width=True, type="primary" if ativo else "secondary"):
+                    st.session_state["trat_folha_emp"] = op
+                    st.rerun()
+        empresa_f = st.session_state.get("trat_folha_emp", None)
+
+        st.markdown("---")
+        arq_f = st.file_uploader("📎 Anexo *", type=["pdf","png","jpg","jpeg","xlsx","xml","docx"], key="trat_folha_arq")
+        obs_f = st.text_area("📝 Observacao *", placeholder="Descreva a solicitação...", key="trat_folha_obs")
+
+        st.markdown("---")
+        if st.button("📨 Abrir Chamado para o Setor", use_container_width=True, key="trat_folha_enviar"):
+            erros = []
+            if not setor_dados: erros.append("Setor responsavel")
+            if not empresa_f: erros.append("Empresa")
+            if arq_f is None: erros.append("Anexo")
+            if not obs_f.strip(): erros.append("Observacao")
+            if erros:
+                st.error(f"Preencha: {', '.join(erros)}")
+                return
+            setor_nome = setor_dados[0]
+            email_setor = setor_dados[1]
+            anexo_bytes = arq_f.getvalue()
+            anexo_nome = arq_f.name
+            protocolo = criar_chamado_tratativa(setor_nome, empresa_f, TIPO_FOLHA, TIPO_FOLHA,
+                "", "", "", obs_f.strip(), "", "", anexo_nome, anexo_bytes, st.session_state.usuario)
+            try:
+                if email_setor:
+                    email_novo_chamado(email_setor, protocolo, setor_nome, TIPO_FOLHA, "Normal",
+                        "", "", st.session_state.usuario, anexos=[(anexo_nome, anexo_bytes)])
+            except:
+                pass
+            for k in ["trat_tipo_nota","trat_folha_emp","trat_folha_obs","trat_folha_arq"]:
+                st.session_state.pop(k, None)
+            st.cache_data.clear()
+            st.success(f"✅ Chamado **{protocolo}** aberto para {setor_nome} (Em andamento).")
+            st.balloons()
+        st.markdown("---")
+        _lista_enviados()
+        return
+
+    # ===== FLUXO NORMAL =====
     st.markdown("#### 🏢 Empresa")
     empresa_sel = st.session_state.get("trat_empresa", None)
     cols_emp = st.columns(5)
@@ -168,7 +193,6 @@ def tela_tratativa():
         tipo_outros_desc = st.text_area("Descreva a inconsistencia *", key="trat_outros")
 
     st.markdown("---")
-
     with st.form("form_tratativa", clear_on_submit=True):
         col1, col2 = st.columns(2)
         with col1:
@@ -182,11 +206,11 @@ def tela_tratativa():
         with col4:
             nu_nota = st.text_input("🔢 NU Nota (opcional)")
         copia_sel = st.multiselect("👥 Setores em cópia (opcional)", nomes_copia,
-            help="Esses setores recebem o e-mail da solicitação em cópia.")
+            help="Esses setores recebem aviso do chamado em cópia.")
         arquivo = st.file_uploader("📎 Anexo (opcional)", type=["pdf","png","jpg","jpeg","xlsx","xml","docx"])
         observacao = st.text_area("📝 Observacao para o setor *",
             placeholder="Descreva a inconsistencia identificada e o que o setor deve fazer...")
-        enviar = st.form_submit_button("📨 Enviar Solicitacao", use_container_width=True)
+        enviar = st.form_submit_button("📨 Abrir Chamado para o Setor", use_container_width=True)
 
     if enviar:
         erros = []
@@ -199,84 +223,76 @@ def tela_tratativa():
 
         setor_nome = setor_dados[0]
         email_setor = setor_dados[1]
-
-        if not email_setor:
-            st.error(f"O setor {setor_nome} nao tem e-mail cadastrado. Atualize em Administracao.")
-            return
-
         tipo_final = f"Outros: {tipo_outros_desc.strip()}" if tipo == "Outros" else (tipo or "")
 
-        # Prepara anexo (se houver)
-        anexos = None
-        if arquivo is not None:
-            anexos = [(arquivo.name, arquivo.getvalue())]
+        anexo_bytes = arquivo.getvalue() if arquivo is not None else None
+        anexo_nome = arquivo.name if arquivo is not None else None
 
-        run_query("""INSERT INTO solicitacoes_tratativa
-            (setor_destino, empresa, tipo_inconsistencia, nome_parceiro, numero_nota,
-            tipo_nota, valor, observacao, criado_por, criado_em, status, num_unico_financeiro, num_unico_nota)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-            (setor_nome, empresa or "", tipo_final, nome_parceiro.strip(),
-             numero_nota.strip(), tipo_nota or "", valor.strip(),
-             observacao.strip(), st.session_state.usuario,
-             datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), "Pendente",
-             nu_financeiro.strip() or None, nu_nota.strip() or None))
+        protocolo = criar_chamado_tratativa(setor_nome, empresa, tipo_final, tipo_nota,
+            nome_parceiro, numero_nota, valor, observacao,
+            nu_financeiro, nu_nota, anexo_nome, anexo_bytes, st.session_state.usuario)
 
-        ok = email_solicitacao_tratativa(
-            email_setor, setor_nome, empresa or "—", tipo_final,
-            nome_parceiro.strip(), numero_nota.strip(),
-            tipo_nota or "—", valor.strip(), observacao.strip(),
-            st.session_state.usuario, anexos=anexos,
-            nu_financeiro=nu_financeiro.strip(), nu_nota=nu_nota.strip())
+        # Notifica o setor responsavel
+        try:
+            if email_setor:
+                anexos = [(anexo_nome, anexo_bytes)] if anexo_bytes else None
+                email_novo_chamado(email_setor, protocolo, setor_nome, tipo_final, "Normal",
+                    nome_parceiro.strip(), numero_nota.strip(), st.session_state.usuario, anexos=anexos,
+                    nu_financeiro=nu_financeiro.strip(), nu_nota=nu_nota.strip())
+        except:
+            pass
 
-        # Envia a mesma solicitação (com anexo) em cópia para os setores marcados
+        # Setores em copia
         copias_enviadas = []
         for n in copia_sel:
             em = mapa_email.get(n)
             if em and em != email_setor:
                 try:
-                    email_solicitacao_tratativa(
-                        em, setor_nome, empresa or "—", tipo_final,
-                        nome_parceiro.strip(), numero_nota.strip(),
-                        tipo_nota or "—", valor.strip(), observacao.strip(),
-                        st.session_state.usuario, anexos=anexos,
-                        nu_financeiro=nu_financeiro.strip(), nu_nota=nu_nota.strip())
+                    salvar_copia(protocolo, n)
+                    email_setor_em_copia(em, protocolo, n, setor_nome)
                     copias_enviadas.append(n)
                 except:
                     pass
 
         for k in ["trat_tipo_nota","trat_empresa","trat_tipo","trat_outros"]:
             st.session_state.pop(k, None)
-
-        if ok:
-            msg = f"✅ Solicitacao enviada para {setor_nome} ({email_setor})!"
-            if copias_enviadas:
-                msg += f" Em cópia: {', '.join(copias_enviadas)}."
-            st.success(msg)
-            st.balloons()
-        else:
-            st.warning("Solicitacao registrada mas houve erro no envio do e-mail.")
+        st.cache_data.clear()
+        msg = f"✅ Chamado **{protocolo}** aberto para {setor_nome} (Em andamento)."
+        if copias_enviadas:
+            msg += f" Em cópia: {', '.join(copias_enviadas)}."
+        st.success(msg)
+        st.balloons()
 
     st.markdown("---")
-    st.subheader("📋 Solicitacoes enviadas")
-    solicitacoes = run_query("""SELECT setor_destino, empresa, tipo_inconsistencia,
-        nome_parceiro, numero_nota, status, criado_em
-        FROM solicitacoes_tratativa ORDER BY criado_em DESC LIMIT 50""", fetch=True)
+    _lista_enviados()
 
-    if not solicitacoes:
-        st.info("Nenhuma solicitacao enviada ainda.")
-    else:
-        for s in solicitacoes:
-            setor_d, emp, tipo_i, parceiro, nf, status, criado_em = s
-            cor = "#f59e0b" if status == "Pendente" else "#22c55e"
-            st.markdown(f"""
-            <div style='background:white;border:1px solid #e8e8e8;border-radius:8px;
-            padding:12px 16px;margin-bottom:6px;'>
-                <div style='display:flex;justify-content:space-between;align-items:center;'>
-                    <span style='font-size:13px;font-weight:600;color:#041747;'>
-                    {setor_d} — {parceiro or "—"} | NF: {nf or "—"}</span>
-                    <span style='font-size:12px;color:{cor};font-weight:600;'>{status}</span>
-                </div>
-                <p style='font-size:12px;color:#666;margin:4px 0 0;'>
-                Empresa: {emp or "—"} · Tipo: {tipo_i or "—"} · {criado_em}</p>
+def salvar_copia(protocolo, setor):
+    try:
+        run_query("INSERT INTO chamados_copia (protocolo, setor) VALUES (%s,%s)", (protocolo, setor))
+    except:
+        pass
+
+def _lista_enviados():
+    st.subheader("📋 Chamados abertos pela Contabilidade")
+    chamados = run_query("""SELECT protocolo, setor, empresa, tipo_inconsistencia,
+        nome_parceiro, numero_nota, status, aberto_em
+        FROM chamados WHERE solicitante=%s ORDER BY aberto_em DESC LIMIT 50""",
+        (st.session_state.usuario,), fetch=True)
+    if not chamados:
+        st.info("Nenhum chamado aberto pela Contabilidade ainda.")
+        return
+    for c in chamados:
+        prot, setor_d, emp, tipo_i, parceiro, nf, status, aberto_em = c
+        cor = {"Aberto":"#ef4444","Em andamento":"#f59e0b","Resolvido":"#22c55e","Cancelado":"#6b7280"}.get(status, "#666")
+        st.markdown(f"""
+        <div style='background:white;border:1px solid #e8e8e8;border-radius:8px;
+        padding:12px 16px;margin-bottom:6px;'>
+            <div style='display:flex;justify-content:space-between;align-items:center;'>
+                <span style='font-size:13px;font-weight:600;color:#041747;'>
+                {prot} · {setor_d} — {parceiro or "—"} | NF: {nf or "—"}</span>
+                <span style='font-size:12px;color:{cor};font-weight:600;'>{status}</span>
             </div>
-            """, unsafe_allow_html=True)
+            <p style='font-size:12px;color:#666;margin:4px 0 0;'>
+            Empresa: {emp or "—"} · Tipo: {tipo_i or "—"} · {aberto_em}</p>
+        </div>
+        """, unsafe_allow_html=True)
