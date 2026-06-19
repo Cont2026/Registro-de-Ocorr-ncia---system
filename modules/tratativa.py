@@ -30,11 +30,6 @@ def filtrar_inconsistencias_trat(tipos_lista, tipo_mov):
     vinc_do_tipo = mapa.get(tipo_mov, set())
     return [inc for inc in tipos_lista if (inc in vinc_do_tipo) or (inc not in com_vinculo)]
 
-def buscar_email_setor(nome):
-    r = run_query("SELECT email FROM usuarios WHERE (setor_nome=%s OR nome=%s) AND perfil='setor' AND ativo=1 LIMIT 1",
-                  (nome, nome), fetch=True)
-    return r[0][0] if r and r[0] else None
-
 def _valor_float(v):
     v = (v or "").strip()
     if not v:
@@ -51,10 +46,17 @@ def gerar_protocolo():
     total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
     return f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-{str(total+1).zfill(4)}"
 
+def salvar_copia(protocolo, setor):
+    try:
+        run_query("INSERT INTO chamados_copia (protocolo, setor) VALUES (%s,%s)", (protocolo, setor))
+    except:
+        pass
+
 def criar_chamado_tratativa(setor_destino, empresa, tipo_inconsistencia, tipo_nota,
                             nome_parceiro, numero_nota, valor, observacao,
                             nu_financeiro, nu_nota, anexo_nome, anexo_bytes, solicitante,
-                            data_negociacao=None):
+                            prioridade="Normal", nf_retorna="", financeiro_baixado="",
+                            data_entrada=None, data_negociacao=None):
     """Cria o chamado direto no setor responsavel, ja em 'Em andamento' (aberto pela Contabilidade)."""
     protocolo = gerar_protocolo()
     anexo_dados = None
@@ -66,12 +68,27 @@ def criar_chamado_tratativa(setor_destino, empresa, tipo_inconsistencia, tipo_no
         valor,observacao,arquivo_nome,status,aberto_em,financeiro_baixado,anexo_dados,
         num_unico_financeiro,num_unico_nota)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-        (protocolo, setor_destino, empresa or "", tipo_inconsistencia, "Normal", "",
+        (protocolo, setor_destino, empresa or "", tipo_inconsistencia, prioridade or "Normal", nf_retorna or "",
          solicitante, (nome_parceiro or "").strip(), (numero_nota or "").strip(), tipo_nota or "",
-         None, None, data_negociacao or None,
+         data_entrada or None, None, data_negociacao or None,
          _valor_float(valor), (observacao or "").strip(), anexo_nome, "Em andamento",
-         datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), "", anexo_dados,
+         datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), financeiro_baixado or "", anexo_dados,
          (nu_financeiro or "").strip() or None, (nu_nota or "").strip() or None))
+
+    # Log para a lista "Chamados abertos pela Contabilidade"
+    try:
+        run_query("""INSERT INTO solicitacoes_tratativa
+            (setor_destino, empresa, tipo_inconsistencia, nome_parceiro, numero_nota,
+            tipo_nota, valor, observacao, criado_por, criado_em, status, num_unico_financeiro, num_unico_nota)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (setor_destino, empresa or "", tipo_inconsistencia, (nome_parceiro or "").strip(),
+             (numero_nota or "").strip(), tipo_nota or "", (valor or "").strip(),
+             (observacao or "").strip(), solicitante,
+             datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), "Em andamento",
+             (nu_financeiro or "").strip() or None, (nu_nota or "").strip() or None))
+    except:
+        pass
+
     return protocolo
 
 def tela_tratativa():
@@ -174,20 +191,17 @@ def tela_tratativa():
         _lista_enviados()
         return
 
-    # ===== FLUXO NORMAL =====
-    st.markdown("#### 🏢 Empresa")
-    empresa_sel = st.session_state.get("trat_empresa", None)
-    cols_emp = st.columns(5)
-    for i, op in enumerate(["1","2","6","13","14"]):
-        with cols_emp[i]:
-            ativo = empresa_sel == op
-            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"trat_emp_{i}",
-                use_container_width=True, type="primary" if ativo else "secondary"):
-                st.session_state["trat_empresa"] = op
-                st.rerun()
-    empresa = st.session_state.get("trat_empresa", None)
+    # ===== FLUXO NORMAL (todos os campos da tela do setor) =====
+    eh_compra = "compra" in tipo_nota.lower()
+    if eh_compra:
+        data_ent = st.date_input("📥 Data da Nota *", value=None, key="trat_data_ent")
+        data_neg = None
+    else:
+        data_neg = st.date_input("🤝 Data de Negociação *", value=None, key="trat_data_neg")
+        data_ent = None
 
-    st.markdown("#### 📋 Tipo de Inconsistencia")
+    st.markdown("---")
+    st.markdown("#### 📋 Tipo de Inconsistencia *")
     tipo_sel = st.session_state.get("trat_tipo", None)
     tipos_filtrados = filtrar_inconsistencias_trat(tipos_lista, tipo_nota)
     tipos_com_outros = tipos_filtrados + ["Outros"]
@@ -200,20 +214,67 @@ def tela_tratativa():
                 st.session_state["trat_tipo"] = op
                 st.rerun()
     tipo = st.session_state.get("trat_tipo", None)
-
     tipo_outros_desc = ""
     if tipo == "Outros":
         tipo_outros_desc = st.text_area("Descreva a inconsistencia *", key="trat_outros")
+
+    st.markdown("#### 🏢 Empresa *")
+    empresa_sel = st.session_state.get("trat_empresa", None)
+    cols_emp = st.columns(5)
+    for i, op in enumerate(["1","2","6","13","14"]):
+        with cols_emp[i]:
+            ativo = empresa_sel == op
+            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"trat_emp_{i}",
+                use_container_width=True, type="primary" if ativo else "secondary"):
+                st.session_state["trat_empresa"] = op
+                st.rerun()
+    empresa = st.session_state.get("trat_empresa", None)
+
+    st.markdown("#### 🚦 Prioridade *")
+    prio_sel = st.session_state.get("trat_prioridade", None)
+    cols_prio = st.columns(2)
+    for i, op in enumerate(["Normal","Urgente"]):
+        with cols_prio[i]:
+            ativo = prio_sel == op
+            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"trat_prio_{i}",
+                use_container_width=True, type="primary" if ativo else "secondary"):
+                st.session_state["trat_prioridade"] = op
+                st.rerun()
+    prioridade = st.session_state.get("trat_prioridade", None)
+
+    st.markdown("#### 🔄 NF retornará ao sistema? *")
+    nf_sel = st.session_state.get("trat_nf", None)
+    cols_nf = st.columns(2)
+    for i, op in enumerate(["Sim","Não"]):
+        with cols_nf[i]:
+            ativo = nf_sel == op
+            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"trat_nf_{i}",
+                use_container_width=True, type="primary" if ativo else "secondary"):
+                st.session_state["trat_nf"] = op
+                st.rerun()
+    nf_retorna = st.session_state.get("trat_nf", None)
+
+    st.markdown("#### 💰 Financeiro Baixado? *")
+    fin_sel = st.session_state.get("trat_fin", None)
+    cols_fin = st.columns(2)
+    for i, op in enumerate(["Sim","Não"]):
+        with cols_fin[i]:
+            ativo = fin_sel == op
+            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"trat_fin_{i}",
+                use_container_width=True, type="primary" if ativo else "secondary"):
+                st.session_state["trat_fin"] = op
+                st.rerun()
+    fin_baixado = st.session_state.get("trat_fin", None)
 
     st.markdown("---")
     with st.form("form_tratativa", clear_on_submit=True):
         col1, col2 = st.columns(2)
         with col1:
-            nome_parceiro = st.text_input("👤 Nome do Parceiro")
-            numero_nota = st.text_input("📄 Numero da Nota")
+            solicitante = st.text_input("🙋 Nome do Solicitante *")
+            nome_parceiro = st.text_input("👤 Nome do Parceiro *")
         with col2:
-            valor = st.text_input("💰 Valor", placeholder="0,00")
-            data_neg = st.date_input("📅 Data", value=None)
+            numero_nota = st.text_input("📄 Numero da Nota *")
+            valor = st.text_input("💰 Valor *", placeholder="0,00")
         col3, col4 = st.columns(2)
         with col3:
             nu_financeiro = st.text_input("🔢 NU Financeiro (opcional)")
@@ -229,8 +290,19 @@ def tela_tratativa():
     if enviar:
         erros = []
         if not setor_dados: erros.append("Setor responsavel")
-        if not observacao.strip(): erros.append("Observacao")
+        if not tipo: erros.append("Tipo de Inconsistencia")
         if tipo == "Outros" and not tipo_outros_desc.strip(): erros.append("Descricao da inconsistencia")
+        if not empresa: erros.append("Empresa")
+        if not prioridade: erros.append("Prioridade")
+        if not nf_retorna: erros.append("NF retornará")
+        if not fin_baixado: erros.append("Financeiro Baixado")
+        if not solicitante.strip(): erros.append("Nome do Solicitante")
+        if not nome_parceiro.strip(): erros.append("Nome do Parceiro")
+        if not numero_nota.strip(): erros.append("Numero da Nota")
+        if not valor.strip(): erros.append("Valor")
+        if eh_compra and not data_ent: erros.append("Data da Nota")
+        if not eh_compra and not data_neg: erros.append("Data de Negociação")
+        if not observacao.strip(): erros.append("Observacao")
         if erros:
             st.error(f"Preencha: {', '.join(erros)}")
             return
@@ -238,26 +310,24 @@ def tela_tratativa():
         setor_nome = setor_dados[0]
         email_setor = setor_dados[1]
         tipo_final = f"Outros: {tipo_outros_desc.strip()}" if tipo == "Outros" else (tipo or "")
-
         anexo_bytes = arquivo.getvalue() if arquivo is not None else None
         anexo_nome = arquivo.name if arquivo is not None else None
 
         protocolo = criar_chamado_tratativa(setor_nome, empresa, tipo_final, tipo_nota,
             nome_parceiro, numero_nota, valor, observacao,
-            nu_financeiro, nu_nota, anexo_nome, anexo_bytes, st.session_state.usuario,
-            data_negociacao=data_neg or None)
+            nu_financeiro, nu_nota, anexo_nome, anexo_bytes, solicitante.strip(),
+            prioridade=prioridade, nf_retorna=nf_retorna, financeiro_baixado=fin_baixado,
+            data_entrada=data_ent or None, data_negociacao=data_neg or None)
 
-        # Notifica o setor responsavel
         try:
             if email_setor:
                 anexos = [(anexo_nome, anexo_bytes)] if anexo_bytes else None
-                email_novo_chamado(email_setor, protocolo, setor_nome, tipo_final, "Normal",
-                    nome_parceiro.strip(), numero_nota.strip(), st.session_state.usuario, anexos=anexos,
+                email_novo_chamado(email_setor, protocolo, setor_nome, tipo_final, prioridade,
+                    nome_parceiro.strip(), numero_nota.strip(), solicitante.strip(), anexos=anexos,
                     nu_financeiro=nu_financeiro.strip(), nu_nota=nu_nota.strip())
         except:
             pass
 
-        # Setores em copia
         copias_enviadas = []
         for n in copia_sel:
             em = mapa_email.get(n)
@@ -269,7 +339,8 @@ def tela_tratativa():
                 except:
                     pass
 
-        for k in ["trat_tipo_nota","trat_empresa","trat_tipo","trat_outros"]:
+        for k in ["trat_tipo_nota","trat_empresa","trat_tipo","trat_outros","trat_prioridade",
+                  "trat_nf","trat_fin","trat_data_ent","trat_data_neg"]:
             st.session_state.pop(k, None)
         st.cache_data.clear()
         msg = f"✅ Chamado **{protocolo}** aberto para {setor_nome} (Em andamento)."
@@ -281,33 +352,26 @@ def tela_tratativa():
     st.markdown("---")
     _lista_enviados()
 
-def salvar_copia(protocolo, setor):
-    try:
-        run_query("INSERT INTO chamados_copia (protocolo, setor) VALUES (%s,%s)", (protocolo, setor))
-    except:
-        pass
-
 def _lista_enviados():
     st.subheader("📋 Chamados abertos pela Contabilidade")
-    chamados = run_query("""SELECT protocolo, setor, empresa, tipo_inconsistencia,
-        nome_parceiro, numero_nota, status, aberto_em
-        FROM chamados WHERE solicitante=%s ORDER BY aberto_em DESC LIMIT 50""",
-        (st.session_state.usuario,), fetch=True)
-    if not chamados:
+    solicitacoes = run_query("""SELECT setor_destino, empresa, tipo_inconsistencia,
+        nome_parceiro, numero_nota, status, criado_em
+        FROM solicitacoes_tratativa ORDER BY criado_em DESC LIMIT 50""", fetch=True)
+    if not solicitacoes:
         st.info("Nenhum chamado aberto pela Contabilidade ainda.")
         return
-    for c in chamados:
-        prot, setor_d, emp, tipo_i, parceiro, nf, status, aberto_em = c
-        cor = {"Aberto":"#ef4444","Em andamento":"#f59e0b","Resolvido":"#22c55e","Cancelado":"#6b7280"}.get(status, "#666")
+    for s in solicitacoes:
+        setor_d, emp, tipo_i, parceiro, nf, status, criado_em = s
+        cor = "#f59e0b" if status == "Em andamento" else "#22c55e"
         st.markdown(f"""
         <div style='background:white;border:1px solid #e8e8e8;border-radius:8px;
         padding:12px 16px;margin-bottom:6px;'>
             <div style='display:flex;justify-content:space-between;align-items:center;'>
                 <span style='font-size:13px;font-weight:600;color:#041747;'>
-                {prot} · {setor_d} — {parceiro or "—"} | NF: {nf or "—"}</span>
+                {setor_d} — {parceiro or "—"} | NF: {nf or "—"}</span>
                 <span style='font-size:12px;color:{cor};font-weight:600;'>{status}</span>
             </div>
             <p style='font-size:12px;color:#666;margin:4px 0 0;'>
-            Empresa: {emp or "—"} · Tipo: {tipo_i or "—"} · {aberto_em}</p>
+            Empresa: {emp or "—"} · Tipo: {tipo_i or "—"} · {criado_em}</p>
         </div>
         """, unsafe_allow_html=True)
