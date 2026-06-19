@@ -10,6 +10,7 @@ from modules.email_service import (email_novo_chamado, email_atualizacao_chamado
 BRASILIA = ZoneInfo("America/Sao_Paulo")
 
 TIPO_FECHAMENTO = "INFORMAR ENTREGÁVEIS"
+TIPO_FOLHA = "Folha de Pagamento"
 
 def verificar_bloqueio(data_nota):
     if not data_nota: return False, ""
@@ -228,6 +229,36 @@ def registrar_fechamento(parcial, observacao="", anexo_nome=None, anexo_bytes=No
 
     return protocolo
 
+def registrar_folha(empresa, fin_baixado, solicitante, observacao, anexo_nome, anexo_bytes):
+    total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
+    protocolo = f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-{str(total+1).zfill(4)}"
+
+    anexo_dados = None
+    if anexo_bytes:
+        import base64
+        anexo_dados = base64.b64encode(anexo_bytes).decode("utf-8")
+
+    run_query("""INSERT INTO chamados (protocolo,setor,empresa,tipo_inconsistencia,prioridade,nf_retorna,
+        solicitante,nome_parceiro,numero_nota,tipo_nota,data_entrada,data_saida,data_negociacao,
+        valor,observacao,arquivo_nome,status,aberto_em,financeiro_baixado,anexo_dados)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+        (protocolo, st.session_state.setor, empresa, TIPO_FOLHA, "Normal", "",
+         solicitante, "", "", TIPO_FOLHA,
+         None, None, None,
+         None, observacao, anexo_nome, "Aberto",
+         datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), fin_baixado, anexo_dados))
+
+    try:
+        email_cont = buscar_email_contabilidade()
+        if email_cont:
+            anexos = [(anexo_nome, anexo_bytes)] if anexo_bytes else None
+            email_novo_chamado(email_cont, protocolo, st.session_state.setor,
+                TIPO_FOLHA, "Normal", "", "", solicitante, anexos=anexos)
+    except:
+        pass
+
+    return protocolo
+
 def tela_novo_chamado(preview=False, setor_preview=None):
     setor_atual = setor_preview if (preview and setor_preview) else st.session_state.get("setor")
     st.title("➕ Novo Chamado")
@@ -294,6 +325,63 @@ def tela_novo_chamado(preview=False, setor_preview=None):
                 anexo_bytes = arq_fech.getvalue()
             protocolo = registrar_fechamento(parcial, obs_fech, anexo_nome, anexo_bytes, atrasos_fech)
             for k in ["sel_tipo_nota", "sel_parcial", "fech_obs", "fech_atrasos", "fech_arquivo"]:
+                st.session_state.pop(k, None)
+            st.cache_data.clear()
+            st.success(f"✅ Chamado registrado! Protocolo: **{protocolo}**")
+            st.balloons()
+        return
+
+    # === FLUXO ESPECIAL: Folha de Pagamento (campos reduzidos) ===
+    if tipo_nota == TIPO_FOLHA:
+        st.markdown("---")
+        st.markdown("#### 🏢 Empresa *")
+        emp_sel = st.session_state.get("folha_empresa", None)
+        cols_e = st.columns(5)
+        for i, op in enumerate(["1", "2", "6", "13", "14"]):
+            with cols_e[i]:
+                ativo = emp_sel == op
+                if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"folha_emp_{i}",
+                    use_container_width=True, type="primary" if ativo else "secondary"):
+                    st.session_state["folha_empresa"] = op
+                    st.rerun()
+        empresa_f = st.session_state.get("folha_empresa", None)
+
+        st.markdown("#### 💰 Financeiro Baixado *")
+        fin_sel = st.session_state.get("folha_fin", None)
+        cfb = st.columns(2)
+        for i, op in enumerate(["Sim", "Não"]):
+            with cfb[i]:
+                ativo = fin_sel == op
+                if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"folha_fin_{i}",
+                    use_container_width=True, type="primary" if ativo else "secondary"):
+                    st.session_state["folha_fin"] = op
+                    st.rerun()
+        fin_baixado_f = st.session_state.get("folha_fin", None)
+
+        st.markdown("---")
+        solicitante_f = st.text_input("👤 Nome do Solicitante *", key="folha_solic")
+        arq_folha = st.file_uploader("📎 Anexo *", type=["pdf","png","jpg","jpeg","xlsx","xml","docx"], key="folha_arquivo")
+        obs_folha = st.text_area("📝 Observação *", placeholder="Descreva a solicitação...", key="folha_obs")
+
+        st.markdown("---")
+        if st.button("📨 Enviar Chamado", use_container_width=True, key="enviar_folha"):
+            if preview:
+                st.info("👁️ Modo visualização: nenhum chamado foi criado.")
+                return
+            erros = []
+            if not empresa_f: erros.append("Empresa")
+            if not fin_baixado_f: erros.append("Financeiro Baixado")
+            if not solicitante_f.strip(): erros.append("Nome do Solicitante")
+            if arq_folha is None: erros.append("Anexo")
+            if not obs_folha.strip(): erros.append("Observação")
+            if erros:
+                st.error(f"⚠️ Preencha: {', '.join(erros)}")
+                return
+            anexo_nome = arq_folha.name
+            anexo_bytes = arq_folha.getvalue()
+            protocolo = registrar_folha(empresa_f, fin_baixado_f, solicitante_f.strip(),
+                                        obs_folha.strip(), anexo_nome, anexo_bytes)
+            for k in ["sel_tipo_nota", "folha_empresa", "folha_fin", "folha_solic", "folha_obs", "folha_arquivo"]:
                 st.session_state.pop(k, None)
             st.cache_data.clear()
             st.success(f"✅ Chamado registrado! Protocolo: **{protocolo}**")
