@@ -83,6 +83,11 @@ def get_tratativa():
     from modules import tratativa
     return tratativa
 
+@st.cache_resource
+def get_fluxogramas():
+    from modules import fluxogramas
+    return fluxogramas
+
 @st.cache_data(ttl=300, show_spinner=False)
 def buscar_usuario(email, senha):
     rows = run_query(
@@ -215,6 +220,7 @@ def sidebar():
                 "📋 Todos os Chamados": "todos_chamados",
                 "📤 Solicitacao de Tratativa": "tratativa",
                 "📅 Calendario": "calendario",
+                "🗺️ Fluxogramas": "fluxogramas",
                 "⚙️ Administracao": "admin",
             }
         else:
@@ -223,6 +229,7 @@ def sidebar():
                 "📋 Minhas Solicitações": "meus_chamados",
                 "👀 Solicitações em Acompanhamento": "acompanhamento",
                 "📅 Calendario": "calendario",
+                "🗺️ Fluxogramas": "fluxogramas",
             }
 
         for label, key in paginas.items():
@@ -272,6 +279,8 @@ def main():
         get_admin().tela_admin()
     elif p == "tratativa":
         get_tratativa().tela_tratativa()
+    elif p == "fluxogramas":
+        get_fluxogramas().tela_fluxogramas()
 
 if __name__ == "__main__":
     main()
