@@ -33,6 +33,24 @@ def converter_valor(valor):
 def carregar_tipos():
     return [r[0] for r in run_query("SELECT nome FROM tipos_inconsistencia WHERE ativo=1 ORDER BY nome", fetch=True)]
 
+@st.cache_data(ttl=120)
+def carregar_vinculos():
+    """Retorna (mapa_mov->set(inconsistencias), set de inconsistencias que têm algum vínculo)."""
+    rows = run_query("SELECT inconsistencia, movimentacao FROM vinculo_inconsistencia_movimentacao", fetch=True)
+    mapa = {}
+    com_vinculo = set()
+    if rows:
+        for inc, mov in rows:
+            mapa.setdefault(mov, set()).add(inc)
+            com_vinculo.add(inc)
+    return mapa, com_vinculo
+
+def filtrar_inconsistencias(tipos_lista, tipo_mov):
+    """Mostra inconsistências vinculadas ao tipo de movimentação + as sem nenhum vínculo (legado)."""
+    mapa, com_vinculo = carregar_vinculos()
+    vinc_do_tipo = mapa.get(tipo_mov, set())
+    return [inc for inc in tipos_lista if (inc in vinc_do_tipo) or (inc not in com_vinculo)]
+
 @st.cache_data(ttl=300)
 def carregar_tipos_nota():
     tipos = [r[0] for r in run_query("SELECT nome FROM tipos_nota WHERE ativo=1 ORDER BY nome", fetch=True)]
@@ -287,7 +305,8 @@ def tela_novo_chamado():
 
     st.markdown("---")
     st.markdown("#### 📋 Abertura de Período / Descontabilização *")
-    tipos_com_outros = tipos + ["Outros"]
+    tipos_filtrados = filtrar_inconsistencias(tipos, tipo_nota)
+    tipos_com_outros = tipos_filtrados + ["Outros"]
     tipo_sel = st.session_state.get("sel_tipo", None)
     cols_tipo = st.columns(min(len(tipos_com_outros), 4))
     for i, op in enumerate(tipos_com_outros):
