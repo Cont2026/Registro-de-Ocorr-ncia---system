@@ -103,11 +103,12 @@ def tabela_row(label, valor, alt=False):
         <td style="padding:8px;background:{bg};color:#333;">{valor}</td>
     </tr>"""
 
-def email_novo_chamado(email_contabilidade, protocolo, setor, tipo, prioridade, parceiro, numero_nota, solicitante, anexos=None, nu_financeiro="", nu_nota=""):
+def email_novo_chamado(email_contabilidade, protocolo, setor, tipo, prioridade, parceiro, numero_nota, solicitante, anexos=None, nu_financeiro="", nu_nota="", atrasos=""):
     assunto = f"ROC — Novo Chamado {protocolo}"
     cor_prio = "#ef4444" if prioridade == "Urgente" else "#22c55e"
     linha_nu_fin = tabela_row("Nº Único Financeiro", nu_financeiro) if nu_financeiro else ""
     linha_nu_nota = tabela_row("Nº Único da Nota", nu_nota, True) if nu_nota else ""
+    linha_atrasos = tabela_row("Atrasos de entregáveis", atrasos) if atrasos else ""
     corpo = f"""
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;padding:20px;border-radius:12px;">
         {cabecalho_email()}
@@ -122,6 +123,7 @@ def email_novo_chamado(email_contabilidade, protocolo, setor, tipo, prioridade, 
                 {tabela_row("Número NF", numero_nota)}
                 {linha_nu_fin}
                 {linha_nu_nota}
+                {linha_atrasos}
                 {tabela_row("Prioridade", f'<span style="color:{cor_prio};font-weight:700;">{prioridade}</span>', True)}
             </table>
             {botao_chamado(protocolo)}
