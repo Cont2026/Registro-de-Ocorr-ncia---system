@@ -10,7 +10,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
-PREFIXO_FECHAMENTO = "Informar fechamento de período"
+PREFIXO_FECHAMENTO = "Informar Entregáveis"
 
 CORES_NIVEL = {
     "Dentro do esperado": "#0F8C3B",
