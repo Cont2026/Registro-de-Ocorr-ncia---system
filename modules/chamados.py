@@ -9,7 +9,7 @@ from modules.email_service import (email_novo_chamado, email_atualizacao_chamado
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
 
-TIPO_FECHAMENTO = "Informar Entregáveis"
+TIPO_FECHAMENTO = "INFORMAR ENTREGÁVEIS"
 
 def verificar_bloqueio(data_nota):
     if not data_nota: return False, ""
@@ -35,7 +35,12 @@ def carregar_tipos():
 
 @st.cache_data(ttl=300)
 def carregar_tipos_nota():
-    return [r[0] for r in run_query("SELECT nome FROM tipos_nota WHERE ativo=1 ORDER BY nome", fetch=True)]
+    tipos = [r[0] for r in run_query("SELECT nome FROM tipos_nota WHERE ativo=1 ORDER BY nome", fetch=True)]
+    # Coloca "INFORMAR ENTREGÁVEIS" em primeiro lugar na fileira
+    if TIPO_FECHAMENTO in tipos:
+        tipos.remove(TIPO_FECHAMENTO)
+        tipos.insert(0, TIPO_FECHAMENTO)
+    return tipos
 
 @st.cache_data(ttl=300)
 def carregar_setores_disponiveis(excluir=None):
