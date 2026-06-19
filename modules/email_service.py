@@ -24,6 +24,15 @@ def registrar_notificacao(protocolo, destinatario, assunto, tipo, sucesso):
     except:
         pass
 
+@st.cache_data(ttl=300)
+def _email_contabilidade():
+    """E-mail da Contabilidade, para receber cópia (BCC) de todas as notificações."""
+    try:
+        r = run_query("SELECT email FROM usuarios WHERE perfil='contabilidade' AND ativo=1 AND email IS NOT NULL AND email<>'' ORDER BY id LIMIT 1", fetch=True)
+        return r[0][0] if r and r[0] and r[0][0] else None
+    except:
+        return None
+
 def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral", anexos=None):
     """anexos: lista de tuplas (nome_arquivo, conteudo_bytes)."""
     try:
@@ -37,6 +46,12 @@ def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral"
             "subject": assunto,
             "content": [{"type": "text/html", "value": corpo_html}]
         }
+
+        # Contabilidade recebe cópia (BCC) de todas as notificações automaticamente,
+        # exceto quando o e-mail já é destinado a ela (evita duplicar).
+        email_cont = _email_contabilidade()
+        if email_cont and email_cont.strip().lower() != (destinatario or "").strip().lower():
+            dados["personalizations"][0]["bcc"] = [{"email": email_cont}]
 
         if anexos:
             lista_anexos = []
