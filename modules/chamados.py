@@ -345,6 +345,11 @@ def tela_novo_chamado():
         with col2:
             numero_nota = st.text_input("📄 Número da Nota *")
             valor = st.text_input("💰 Valor *", placeholder="0,00")
+        col3, col4 = st.columns(2)
+        with col3:
+            nu_financeiro = st.text_input("🔢 NU Financeiro (opcional)")
+        with col4:
+            nu_nota = st.text_input("🔢 NU Nota (opcional)")
         copia_sel = st.multiselect("👥 Setores em cópia (opcional)", setores_copia_disp,
             help="Os setores marcados recebem e-mail e podem acompanhar e responder este chamado.")
         arquivo = st.file_uploader("📎 Anexo (opcional)", type=["pdf","png","jpg","xlsx","xml"])
@@ -393,13 +398,14 @@ def tela_novo_chamado():
 
         run_query("""INSERT INTO chamados (protocolo,setor,empresa,tipo_inconsistencia,prioridade,nf_retorna,
             solicitante,nome_parceiro,numero_nota,tipo_nota,data_entrada,data_saida,data_negociacao,
-            valor,observacao,arquivo_nome,status,aberto_em,financeiro_baixado)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            valor,observacao,arquivo_nome,status,aberto_em,financeiro_baixado,num_unico_financeiro,num_unico_nota)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (protocolo, st.session_state.setor, empresa, tipo_final, prioridade, nf_retorna,
              solicitante.strip(), nome_parceiro.strip(), numero_nota.strip(), tipo_nota,
              data_entrada or None, None, data_negociacao or None,
              valor_float, observacao.strip(), arquivo_nome, "Aberto",
-             datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), fin_baixado))
+             datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), fin_baixado,
+             nu_financeiro.strip() or None, nu_nota.strip() or None))
 
         # Salva setores em cópia e notifica
         if copia_sel:
@@ -416,7 +422,8 @@ def tela_novo_chamado():
             email_cont = buscar_email_contabilidade()
             if email_cont:
                 email_novo_chamado(email_cont, protocolo, st.session_state.setor,
-                    tipo_final, prioridade, nome_parceiro.strip(), numero_nota.strip(), solicitante.strip())
+                    tipo_final, prioridade, nome_parceiro.strip(), numero_nota.strip(), solicitante.strip(),
+                    nu_financeiro=nu_financeiro.strip(), nu_nota=nu_nota.strip())
         except:
             pass
 
@@ -449,10 +456,14 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
             st.markdown(f"**👥 Em cópia:** {', '.join(copias)}")
 
         # Observação e anexo (se houver)
-        det = run_query("SELECT observacao, arquivo_nome, anexo_dados FROM chamados WHERE protocolo=%s",
+        det = run_query("SELECT observacao, arquivo_nome, anexo_dados, num_unico_financeiro, num_unico_nota FROM chamados WHERE protocolo=%s",
                         (protocolo,), fetch=True)
         if det:
-            obs_txt, arq_nome, arq_dados = det[0]
+            obs_txt, arq_nome, arq_dados, nu_fin, nu_nt = det[0]
+            if nu_fin:
+                st.markdown(f"**🔢 Número Único Financeiro:** {nu_fin}")
+            if nu_nt:
+                st.markdown(f"**🔢 Número Único da Nota:** {nu_nt}")
             if obs_txt:
                 st.markdown(f"**📝 Observação:** {obs_txt}")
             if arq_dados:
