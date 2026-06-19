@@ -35,13 +35,26 @@ def buscar_email_setor(nome):
                   (nome, nome), fetch=True)
     return r[0][0] if r and r[0] else None
 
+def _valor_float(v):
+    v = (v or "").strip()
+    if not v:
+        return None
+    try:
+        return float(v.replace(".", "").replace(",", "."))
+    except:
+        try:
+            return float(v)
+        except:
+            return None
+
 def gerar_protocolo():
     total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
     return f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-{str(total+1).zfill(4)}"
 
 def criar_chamado_tratativa(setor_destino, empresa, tipo_inconsistencia, tipo_nota,
                             nome_parceiro, numero_nota, valor, observacao,
-                            nu_financeiro, nu_nota, anexo_nome, anexo_bytes, solicitante):
+                            nu_financeiro, nu_nota, anexo_nome, anexo_bytes, solicitante,
+                            data_negociacao=None):
     """Cria o chamado direto no setor responsavel, ja em 'Em andamento' (aberto pela Contabilidade)."""
     protocolo = gerar_protocolo()
     anexo_dados = None
@@ -55,8 +68,8 @@ def criar_chamado_tratativa(setor_destino, empresa, tipo_inconsistencia, tipo_no
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
         (protocolo, setor_destino, empresa or "", tipo_inconsistencia, "Normal", "",
          solicitante, (nome_parceiro or "").strip(), (numero_nota or "").strip(), tipo_nota or "",
-         None, None, None,
-         (valor or "").strip(), (observacao or "").strip(), anexo_nome, "Em andamento",
+         None, None, data_negociacao or None,
+         _valor_float(valor), (observacao or "").strip(), anexo_nome, "Em andamento",
          datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), "", anexo_dados,
          (nu_financeiro or "").strip() or None, (nu_nota or "").strip() or None))
     return protocolo
@@ -200,6 +213,7 @@ def tela_tratativa():
             numero_nota = st.text_input("📄 Numero da Nota")
         with col2:
             valor = st.text_input("💰 Valor", placeholder="0,00")
+            data_neg = st.date_input("📅 Data", value=None)
         col3, col4 = st.columns(2)
         with col3:
             nu_financeiro = st.text_input("🔢 NU Financeiro (opcional)")
@@ -230,7 +244,8 @@ def tela_tratativa():
 
         protocolo = criar_chamado_tratativa(setor_nome, empresa, tipo_final, tipo_nota,
             nome_parceiro, numero_nota, valor, observacao,
-            nu_financeiro, nu_nota, anexo_nome, anexo_bytes, st.session_state.usuario)
+            nu_financeiro, nu_nota, anexo_nome, anexo_bytes, st.session_state.usuario,
+            data_negociacao=data_neg or None)
 
         # Notifica o setor responsavel
         try:
