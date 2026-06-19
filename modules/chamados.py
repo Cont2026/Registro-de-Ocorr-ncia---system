@@ -9,7 +9,7 @@ from modules.email_service import (email_novo_chamado, email_atualizacao_chamado
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
 
-TIPO_FECHAMENTO = "Informar fechamento de período"
+TIPO_FECHAMENTO = "Informar Entregáveis"
 
 def verificar_bloqueio(data_nota):
     if not data_nota: return False, ""
@@ -168,7 +168,7 @@ def exibir_chat(protocolo, setor_chamado):
                 st.rerun()
 
 
-def registrar_fechamento(parcial, observacao="", anexo_nome=None, anexo_bytes=None):
+def registrar_fechamento(parcial, observacao="", anexo_nome=None, anexo_bytes=None, atrasos=""):
     tipo_final = f"{TIPO_FECHAMENTO} - {parcial}"
     total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
     protocolo = f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-{str(total+1).zfill(4)}"
@@ -180,20 +180,22 @@ def registrar_fechamento(parcial, observacao="", anexo_nome=None, anexo_bytes=No
 
     run_query("""INSERT INTO chamados (protocolo,setor,empresa,tipo_inconsistencia,prioridade,nf_retorna,
         solicitante,nome_parceiro,numero_nota,tipo_nota,data_entrada,data_saida,data_negociacao,
-        valor,observacao,arquivo_nome,status,aberto_em,financeiro_baixado,anexo_dados)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+        valor,observacao,arquivo_nome,status,aberto_em,financeiro_baixado,anexo_dados,atrasos_entregaveis)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
         (protocolo, st.session_state.setor, "", tipo_final, "Normal", "",
          st.session_state.usuario, "", "", TIPO_FECHAMENTO,
          None, None, None,
          None, (observacao or "").strip(), anexo_nome, "Aberto",
-         datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), "", anexo_dados))
+         datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), "", anexo_dados,
+         (atrasos or "").strip() or None))
 
     try:
         email_cont = buscar_email_contabilidade()
         if email_cont:
             anexos = [(anexo_nome, anexo_bytes)] if anexo_bytes else None
             email_novo_chamado(email_cont, protocolo, st.session_state.setor,
-                tipo_final, "Normal", "", "", st.session_state.usuario, anexos=anexos)
+                tipo_final, "Normal", "", "", st.session_state.usuario, anexos=anexos,
+                atrasos=(atrasos or "").strip())
     except:
         pass
 
@@ -242,7 +244,8 @@ def tela_novo_chamado():
         parcial = st.session_state.get("sel_parcial", None)
 
         st.markdown("---")
-        obs_fech = st.text_area("📝 Observação (opcional)", placeholder="Informações adicionais sobre o fechamento...", key="fech_obs")
+        obs_fech = st.text_area("📝 Observação (opcional)", placeholder="Informações adicionais sobre a entrega...", key="fech_obs")
+        atrasos_fech = st.text_area("⏰ Atrasos de entregáveis (opcional)", placeholder="Descreva eventuais atrasos de entregáveis...", key="fech_atrasos")
         arq_fech = st.file_uploader("📎 Anexo de documentos (opcional)",
             type=["pdf","png","jpg","jpeg","xlsx","xml","docx"], key="fech_arquivo")
 
@@ -256,8 +259,8 @@ def tela_novo_chamado():
             if arq_fech is not None:
                 anexo_nome = arq_fech.name
                 anexo_bytes = arq_fech.getvalue()
-            protocolo = registrar_fechamento(parcial, obs_fech, anexo_nome, anexo_bytes)
-            for k in ["sel_tipo_nota", "sel_parcial", "fech_obs", "fech_arquivo"]:
+            protocolo = registrar_fechamento(parcial, obs_fech, anexo_nome, anexo_bytes, atrasos_fech)
+            for k in ["sel_tipo_nota", "sel_parcial", "fech_obs", "fech_atrasos", "fech_arquivo"]:
                 st.session_state.pop(k, None)
             st.cache_data.clear()
             st.success(f"✅ Chamado registrado! Protocolo: **{protocolo}**")
@@ -456,14 +459,16 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
             st.markdown(f"**👥 Em cópia:** {', '.join(copias)}")
 
         # Observação e anexo (se houver)
-        det = run_query("SELECT observacao, arquivo_nome, anexo_dados, num_unico_financeiro, num_unico_nota FROM chamados WHERE protocolo=%s",
+        det = run_query("SELECT observacao, arquivo_nome, anexo_dados, num_unico_financeiro, num_unico_nota, atrasos_entregaveis FROM chamados WHERE protocolo=%s",
                         (protocolo,), fetch=True)
         if det:
-            obs_txt, arq_nome, arq_dados, nu_fin, nu_nt = det[0]
+            obs_txt, arq_nome, arq_dados, nu_fin, nu_nt, atrasos_txt = det[0]
             if nu_fin:
                 st.markdown(f"**🔢 Número Único Financeiro:** {nu_fin}")
             if nu_nt:
                 st.markdown(f"**🔢 Número Único da Nota:** {nu_nt}")
+            if atrasos_txt:
+                st.markdown(f"**⏰ Atrasos de entregáveis:** {atrasos_txt}")
             if obs_txt:
                 st.markdown(f"**📝 Observação:** {obs_txt}")
             if arq_dados:
