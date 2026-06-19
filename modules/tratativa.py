@@ -104,6 +104,9 @@ def tela_tratativa():
     if "INFORMAR ENTREGÁVEIS" in tipos_movimentacao:
         tipos_movimentacao.remove("INFORMAR ENTREGÁVEIS")
         tipos_movimentacao.insert(0, "INFORMAR ENTREGÁVEIS")
+    if "Folha de Pagamento" in tipos_movimentacao:
+        tipos_movimentacao.remove("Folha de Pagamento")
+        tipos_movimentacao.append("Folha de Pagamento")
     tipo_nota = st.session_state.get("trat_tipo_nota", None)
     if not tipos_movimentacao:
         st.warning("⚠️ Nenhum tipo de movimentacao cadastrado. Cadastre no painel Admin.")
