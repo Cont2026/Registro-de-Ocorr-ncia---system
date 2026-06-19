@@ -101,6 +101,9 @@ def tela_tratativa():
     st.markdown("#### 🗂️ Tipo de Movimentacao")
     tipos_nota_rows = run_query("SELECT nome FROM tipos_nota WHERE ativo=1 ORDER BY nome", fetch=True)
     tipos_movimentacao = [t[0] for t in tipos_nota_rows] if tipos_nota_rows else []
+    if "INFORMAR ENTREGÁVEIS" in tipos_movimentacao:
+        tipos_movimentacao.remove("INFORMAR ENTREGÁVEIS")
+        tipos_movimentacao.insert(0, "INFORMAR ENTREGÁVEIS")
     tipo_nota = st.session_state.get("trat_tipo_nota", None)
     if not tipos_movimentacao:
         st.warning("⚠️ Nenhum tipo de movimentacao cadastrado. Cadastre no painel Admin.")
