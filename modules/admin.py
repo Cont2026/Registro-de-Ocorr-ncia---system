@@ -54,23 +54,39 @@ def tela_admin():
 
     with aba[1]:
         st.subheader("Gerenciar Tipos de Inconsistencia")
-        st.markdown("Edite, adicione ou remova os tipos. Clique em **Salvar** quando terminar.")
+        st.markdown("Edite o nome e selecione a quais **Tipos de Movimentacao** cada inconsistencia pertence. "
+                    "Inconsistencias sem nenhum vinculo aparecem em todos os tipos.")
         st.markdown("---")
+
+        # Opcoes de tipos de movimentacao para o vinculo
+        movs_db = run_query("SELECT nome FROM tipos_nota WHERE ativo=1 ORDER BY nome", fetch=True)
+        movs_opcoes = [m[0] for m in movs_db] if movs_db else []
 
         if "lista_tipos" not in st.session_state or st.session_state.get("reload_tipos", True):
             tipos_db = run_query("SELECT id, nome FROM tipos_inconsistencia WHERE ativo=1 ORDER BY nome", fetch=True)
-            st.session_state.lista_tipos = [{"id": t[0], "nome": t[1]} for t in tipos_db]
+            vinc_db = run_query("SELECT inconsistencia, movimentacao FROM vinculo_inconsistencia_movimentacao", fetch=True)
+            mapa_vinc = {}
+            if vinc_db:
+                for inc, mov in vinc_db:
+                    mapa_vinc.setdefault(inc, []).append(mov)
+            st.session_state.lista_tipos = [{"id": t[0], "nome": t[1], "movs": mapa_vinc.get(t[1], [])} for t in tipos_db]
             st.session_state.reload_tipos = False
 
         indices_remover = []
         for i, item in enumerate(st.session_state.lista_tipos):
-            c1, c2 = st.columns([5, 1])
+            chave = str(item.get("id", "novo"))
+            c1, c2, c3 = st.columns([4, 4, 1])
             with c1:
-                chave = str(item.get("id", "novo"))
-                novo_nome = st.text_input(f"Tipo {i+1}", value=item["nome"],
-                    key=f"tipo_edit_{i}_{chave}", label_visibility="collapsed")
+                novo_nome = st.text_input(f"Inconsistencia {i+1}", value=item["nome"],
+                    key=f"tipo_edit_{i}_{chave}", label_visibility="collapsed", placeholder="Nome da inconsistencia")
                 st.session_state.lista_tipos[i]["nome"] = novo_nome
             with c2:
+                movs_validas = [m for m in item.get("movs", []) if m in movs_opcoes]
+                sel = st.multiselect("Tipos de Movimentacao", movs_opcoes, default=movs_validas,
+                    key=f"tipo_movs_{i}_{chave}", label_visibility="collapsed",
+                    placeholder="Pertence a quais tipos? (vazio = todos)")
+                st.session_state.lista_tipos[i]["movs"] = sel
+            with c3:
                 if st.button("X", key=f"rem_{i}_{chave}", help="Remover"):
                     indices_remover.append(i)
 
@@ -83,7 +99,7 @@ def tela_admin():
         col_add, col_save = st.columns(2)
         with col_add:
             if st.button("Adicionar novo tipo", use_container_width=True):
-                st.session_state.lista_tipos.append({"id": None, "nome": ""})
+                st.session_state.lista_tipos.append({"id": None, "nome": "", "movs": []})
                 st.rerun()
         with col_save:
             if st.button("Salvar alteracoes", use_container_width=True, type="primary"):
@@ -95,20 +111,26 @@ def tela_admin():
             with cc1:
                 if st.button("Sim, salvar", use_container_width=True, key="confirmar_sim"):
                     run_query("UPDATE tipos_inconsistencia SET ativo=0")
+                    # Reescreve todos os vinculos a partir da tela
+                    run_query("DELETE FROM vinculo_inconsistencia_movimentacao")
                     for item in st.session_state.lista_tipos:
                         nome_item = item["nome"].strip()
-                        if not nome_item: continue
+                        if not nome_item:
+                            continue
                         if item["id"]:
                             run_query("UPDATE tipos_inconsistencia SET nome=%s, ativo=1 WHERE id=%s",
                                       (nome_item, item["id"]))
                         else:
                             run_query("INSERT INTO tipos_inconsistencia (nome,ativo) VALUES (%s,1) ON CONFLICT (nome) DO UPDATE SET ativo=1",
                                       (nome_item,))
+                        for mov in item.get("movs", []):
+                            run_query("INSERT INTO vinculo_inconsistencia_movimentacao (inconsistencia, movimentacao) VALUES (%s,%s)",
+                                      (nome_item, mov))
                     st.session_state.confirmar_save_tipos = False
                     st.session_state.reload_tipos = True
                     st.cache_data.clear()
                     st.cache_resource.clear()
-                    st.success("✅ Tipos salvos!")
+                    st.success("✅ Tipos e vinculos salvos!")
                     st.rerun()
             with cc2:
                 if st.button("Cancelar", use_container_width=True, key="confirmar_nao"):
