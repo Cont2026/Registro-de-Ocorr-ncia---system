@@ -4,7 +4,7 @@ from database.connection import run_query
 def tela_admin():
     st.title("⚙️ Administracao")
     st.markdown("---")
-    aba = st.tabs(["👥 Setores", "📋 Tipos de Inconsistencia", "🗂️ Tipos de Movimentacao", "📧 Notificacoes"])
+    aba = st.tabs(["👥 Setores", "📋 Tipos de Inconsistencia", "🗂️ Tipos de Movimentacao", "📧 Notificacoes", "👁️ Visualizar Tela do Setor"])
 
     with aba[0]:
         st.subheader("Setores cadastrados")
@@ -231,3 +231,21 @@ def tela_admin():
                     Para: {destinatario} · Tipo: {tipo} · Protocolo: {protocolo or "—"}</p>
                 </div>
                 """, unsafe_allow_html=True)
+
+    with aba[4]:
+        st.subheader("👁️ Visualizar Tela do Setor")
+        st.markdown("Veja exatamente como os setores enxergam a tela de abertura de chamado. "
+                    "É apenas uma simulação — **nenhum chamado é criado** aqui.")
+        st.markdown("---")
+        setores_db = run_query("SELECT setor_nome, nome FROM usuarios WHERE perfil='setor' AND ativo=1 ORDER BY nome", fetch=True)
+        opcoes = [ (s[0] or s[1]) for s in setores_db ] if setores_db else []
+        if not opcoes:
+            st.info("Nenhum setor ativo cadastrado para simular.")
+        else:
+            setor_sim = st.selectbox("Simular como qual setor?", opcoes, key="preview_setor_sel")
+            st.markdown("---")
+            try:
+                from modules.chamados import tela_novo_chamado
+                tela_novo_chamado(preview=True, setor_preview=setor_sim)
+            except Exception as e:
+                st.error(f"Não foi possível carregar a visualização: {e}")
