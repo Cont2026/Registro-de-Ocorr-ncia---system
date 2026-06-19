@@ -1,614 +1,251 @@
 import streamlit as st
-import os
-import calendar
-from datetime import datetime
-from zoneinfo import ZoneInfo
 from database.connection import run_query
-from modules.email_service import (email_novo_chamado, email_atualizacao_chamado,
-    email_conclusao_chamado, email_nova_mensagem, email_setor_em_copia)
 
-BRASILIA = ZoneInfo("America/Sao_Paulo")
-
-TIPO_FECHAMENTO = "INFORMAR ENTREGÁVEIS"
-
-def verificar_bloqueio(data_nota):
-    if not data_nota: return False, ""
-    agora = datetime.now(BRASILIA)
-    hoje = agora.date()
-    m, a, ma, aa = data_nota.month, data_nota.year, hoje.month, hoje.year
-    if a == aa and m == ma: return False, ""
-    if a < aa or (a == aa and m < ma - 1):
-        return True, "⛔ O prazo para solicitações da competência selecionada foi encerrado."
-    if agora > datetime(aa, ma, calendar.monthrange(aa, ma)[1], 17, 48, 0, tzinfo=BRASILIA):
-        return True, "⛔ O prazo para solicitações da competência selecionada foi encerrado."
-    return False, ""
-
-def converter_valor(valor):
-    v = valor.strip().replace(" ", "")
-    if "," in v and "." in v: v = v.replace(".", "").replace(",", ".")
-    elif "," in v: v = v.replace(",", ".")
-    return float(v)
-
-@st.cache_data(ttl=300)
-def carregar_tipos():
-    return [r[0] for r in run_query("SELECT nome FROM tipos_inconsistencia WHERE ativo=1 ORDER BY nome", fetch=True)]
-
-@st.cache_data(ttl=120)
-def carregar_vinculos():
-    """Retorna (mapa_mov->set(inconsistencias), set de inconsistencias que têm algum vínculo)."""
-    rows = run_query("SELECT inconsistencia, movimentacao FROM vinculo_inconsistencia_movimentacao", fetch=True)
-    mapa = {}
-    com_vinculo = set()
-    if rows:
-        for inc, mov in rows:
-            mapa.setdefault(mov, set()).add(inc)
-            com_vinculo.add(inc)
-    return mapa, com_vinculo
-
-def filtrar_inconsistencias(tipos_lista, tipo_mov):
-    """Mostra inconsistências vinculadas ao tipo de movimentação + as sem nenhum vínculo (legado)."""
-    mapa, com_vinculo = carregar_vinculos()
-    vinc_do_tipo = mapa.get(tipo_mov, set())
-    return [inc for inc in tipos_lista if (inc in vinc_do_tipo) or (inc not in com_vinculo)]
-
-@st.cache_data(ttl=300)
-def carregar_tipos_nota():
-    tipos = [r[0] for r in run_query("SELECT nome FROM tipos_nota WHERE ativo=1 ORDER BY nome", fetch=True)]
-    # Coloca "INFORMAR ENTREGÁVEIS" em primeiro lugar na fileira
-    if TIPO_FECHAMENTO in tipos:
-        tipos.remove(TIPO_FECHAMENTO)
-        tipos.insert(0, TIPO_FECHAMENTO)
-    # Coloca "Folha de Pagamento" por último
-    if "Folha de Pagamento" in tipos:
-        tipos.remove("Folha de Pagamento")
-        tipos.append("Folha de Pagamento")
-    return tipos
-
-@st.cache_data(ttl=300)
-def carregar_setores_disponiveis(excluir=None):
-    rows = run_query("""SELECT DISTINCT setor_nome FROM usuarios
-        WHERE perfil='setor' AND ativo=1 AND setor_nome IS NOT NULL AND setor_nome <> ''
-        ORDER BY setor_nome""", fetch=True)
-    lista = [r[0] for r in rows] if rows else []
-    if excluir:
-        lista = [s for s in lista if s != excluir]
-    return lista
-
-def carregar_copias(protocolo):
-    rows = run_query("SELECT setor FROM chamados_copia WHERE protocolo=%s ORDER BY setor", (protocolo,), fetch=True)
-    return [r[0] for r in rows] if rows else []
-
-def salvar_copias(protocolo, setores):
-    run_query("DELETE FROM chamados_copia WHERE protocolo=%s", (protocolo,))
-    for s in setores:
-        if s and s.strip():
-            run_query("INSERT INTO chamados_copia (protocolo, setor) VALUES (%s, %s)", (protocolo, s.strip()))
-
-@st.cache_data(ttl=60)
-def carregar_meus_chamados(setor):
-    return run_query("""SELECT protocolo, tipo_inconsistencia, empresa, status, prioridade,
-        nome_parceiro, numero_nota, aberto_em, solicitante, financeiro_baixado
-        FROM chamados WHERE setor=%s ORDER BY aberto_em DESC""", (setor,), fetch=True)
-
-@st.cache_data(ttl=60)
-def carregar_chamados_acompanhamento(setor):
-    return run_query("""SELECT c.protocolo, c.tipo_inconsistencia, c.empresa, c.status, c.prioridade,
-        c.nome_parceiro, c.numero_nota, c.aberto_em, c.solicitante, c.financeiro_baixado, c.setor
-        FROM chamados c
-        JOIN chamados_copia cc ON cc.protocolo = c.protocolo
-        WHERE cc.setor = %s ORDER BY c.aberto_em DESC""", (setor,), fetch=True)
-
-@st.cache_data(ttl=60)
-def carregar_todos_chamados():
-    return run_query("""SELECT protocolo, setor, tipo_inconsistencia, empresa, status, prioridade,
-        nome_parceiro, numero_nota, aberto_em, solicitante, financeiro_baixado
-        FROM chamados ORDER BY aberto_em DESC""", fetch=True)
-
-def buscar_email_contabilidade():
-    rows = run_query("SELECT email FROM usuarios WHERE perfil='contabilidade' AND ativo=1 LIMIT 1", fetch=True)
-    return rows[0][0] if rows else None
-
-def buscar_email_setor(setor_nome):
-    rows = run_query("SELECT email FROM usuarios WHERE setor_nome=%s AND ativo=1 LIMIT 1", (setor_nome,), fetch=True)
-    return rows[0][0] if rows else None
-
-def emails_interessados(protocolo, setor_chamado, excluir_email=None):
-    """Contabilidade (sempre) + setor dono + setores em cópia, menos quem está enviando."""
-    emails = set()
-    ec = buscar_email_contabilidade()
-    if ec: emails.add(ec)
-    es = buscar_email_setor(setor_chamado)
-    if es: emails.add(es)
-    for s in carregar_copias(protocolo):
-        e = buscar_email_setor(s)
-        if e: emails.add(e)
-    if excluir_email:
-        emails.discard(excluir_email)
-    return emails
-
-def carregar_mensagens(protocolo):
-    return run_query("SELECT autor, perfil, mensagem, enviado_em, anexo_nome, anexo_dados FROM mensagens WHERE chamado_protocolo=%s ORDER BY enviado_em ASC", (protocolo,), fetch=True)
-
-def enviar_mensagem_db(protocolo, autor, perfil, mensagem, anexo_nome=None, anexo_dados=None):
-    run_query("INSERT INTO mensagens (chamado_protocolo,autor,perfil,mensagem,enviado_em,anexo_nome,anexo_dados) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-              (protocolo, autor, perfil, mensagem, datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), anexo_nome, anexo_dados))
-
-def _mime_imagem(nome):
-    n = (nome or "").lower()
-    if n.endswith(".png"): return "image/png"
-    if n.endswith(".gif"): return "image/gif"
-    if n.endswith(".webp"): return "image/webp"
-    return "image/jpeg"
-
-def exibir_chat(protocolo, setor_chamado):
-    st.markdown("#### 💬 Acompanhamento")
-    mensagens = carregar_mensagens(protocolo)
-    if not mensagens:
-        st.markdown("<div style='background:#f9f9f9;border-radius:10px;padding:16px;text-align:center;color:#999;font-size:13px;'>Nenhuma mensagem ainda.</div>", unsafe_allow_html=True)
-    else:
-        for autor, perfil, mensagem, enviado_em, anexo_nome, anexo_dados in mensagens:
-            is_cont = perfil == "contabilidade"
-            alinha = "flex-end" if is_cont else "flex-start"
-            bg = "#041747" if is_cont else "#F0F4FF"
-            cor_txt = "white" if is_cont else "#041747"
-            cor_meta = "rgba(255,255,255,0.7)" if is_cont else "#666"
-            border_r = "14px 14px 4px 14px" if is_cont else "14px 14px 14px 4px"
-            txt_html = f"<p style='font-size:13px;margin:0;'>{mensagem}</p>" if mensagem else ""
-            img_html = ""
-            if anexo_dados:
-                mime = _mime_imagem(anexo_nome)
-                img_html = f"<img src='data:{mime};base64,{anexo_dados}' style='max-width:100%;border-radius:8px;margin-top:8px;display:block;'/>"
-            st.markdown(f"""
-            <div style='display:flex;justify-content:{alinha};margin-bottom:10px;'>
-                <div style='max-width:75%;background:{bg};color:{cor_txt};border-radius:{border_r};padding:10px 14px;box-shadow:0 1px 4px rgba(0,0,0,0.08);'>
-                    <p style='font-size:11px;font-weight:700;margin:0 0 4px;color:{cor_meta};'>{autor}</p>
-                    {txt_html}{img_html}
-                    <p style='font-size:10px;margin:6px 0 0;color:{cor_meta};text-align:right;'>{enviado_em}</p>
-                </div>
-            </div>""", unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    with st.form(key=f"chat_{protocolo}", clear_on_submit=True):
-        nova_msg = st.text_area("Nova mensagem", placeholder="Digite sua mensagem...", height=80, label_visibility="collapsed")
-        img = st.file_uploader("🖼️ Anexar imagem (opcional)", type=["png","jpg","jpeg","gif","webp"], key=f"chat_img_{protocolo}")
-        if st.form_submit_button("📨 Enviar", use_container_width=True):
-            tem_texto = bool(nova_msg.strip())
-            tem_img = img is not None
-            if not tem_texto and not tem_img:
-                st.warning("Digite uma mensagem ou anexe uma imagem antes de enviar.")
-            else:
-                anexo_nome = None
-                anexo_dados = None
-                if tem_img:
-                    import base64
-                    anexo_nome = img.name
-                    anexo_dados = base64.b64encode(img.getvalue()).decode("utf-8")
-                enviar_mensagem_db(protocolo, st.session_state.usuario, st.session_state.perfil,
-                                   nova_msg.strip(), anexo_nome, anexo_dados)
-                try:
-                    texto_email = nova_msg.strip() if tem_texto else "[imagem anexada]"
-                    destinos = emails_interessados(protocolo, setor_chamado, st.session_state.get("email"))
-                    for email_dest in destinos:
-                        email_nova_mensagem(email_dest, protocolo, st.session_state.usuario, texto_email)
-                except:
-                    pass
-                st.rerun()
-
-
-def registrar_fechamento(parcial, observacao="", anexo_nome=None, anexo_bytes=None, atrasos=""):
-    tipo_final = f"{TIPO_FECHAMENTO} - {parcial}"
-    total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
-    protocolo = f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-{str(total+1).zfill(4)}"
-
-    anexo_dados = None
-    if anexo_bytes:
-        import base64
-        anexo_dados = base64.b64encode(anexo_bytes).decode("utf-8")
-
-    run_query("""INSERT INTO chamados (protocolo,setor,empresa,tipo_inconsistencia,prioridade,nf_retorna,
-        solicitante,nome_parceiro,numero_nota,tipo_nota,data_entrada,data_saida,data_negociacao,
-        valor,observacao,arquivo_nome,status,aberto_em,financeiro_baixado,anexo_dados,atrasos_entregaveis)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-        (protocolo, st.session_state.setor, "", tipo_final, "Normal", "",
-         st.session_state.usuario, "", "", TIPO_FECHAMENTO,
-         None, None, None,
-         None, (observacao or "").strip(), anexo_nome, "Aberto",
-         datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), "", anexo_dados,
-         (atrasos or "").strip() or None))
-
-    try:
-        email_cont = buscar_email_contabilidade()
-        if email_cont:
-            anexos = [(anexo_nome, anexo_bytes)] if anexo_bytes else None
-            email_novo_chamado(email_cont, protocolo, st.session_state.setor,
-                tipo_final, "Normal", "", "", st.session_state.usuario, anexos=anexos,
-                atrasos=(atrasos or "").strip())
-    except:
-        pass
-
-    return protocolo
-
-def tela_novo_chamado(preview=False, setor_preview=None):
-    setor_atual = setor_preview if (preview and setor_preview) else st.session_state.get("setor")
-    st.title("➕ Novo Chamado")
-    if preview:
-        st.info("👁️ Modo visualização — esta é a tela que os setores enxergam. Nenhum chamado será criado aqui.")
-    st.markdown(f"**Setor:** {setor_atual}")
-    st.markdown("Preencha todos os campos obrigatórios.")
+def tela_admin():
+    st.title("⚙️ Administracao")
     st.markdown("---")
+    aba = st.tabs(["👥 Setores", "📋 Tipos de Inconsistencia", "🗂️ Tipos de Movimentacao", "📧 Notificacoes", "👁️ Visualizar Tela do Setor"])
 
-    tipos = carregar_tipos()
-    tipos_movimentacao = carregar_tipos_nota()
-    if not tipos_movimentacao:
-        st.warning("⚠️ Nenhum tipo de movimentação cadastrado. Solicite o cadastro no painel Admin.")
-        return
+    with aba[0]:
+        st.subheader("Setores cadastrados")
+        usuarios = run_query("SELECT id, nome, email, setor_nome, ativo FROM usuarios WHERE perfil='setor' ORDER BY nome", fetch=True)
 
-    # 1) Tipo de Movimentação (sempre no topo)
-    st.markdown("#### 🗂️ Tipo de Movimentação *")
-    tipo_nota = st.session_state.get("sel_tipo_nota", None)
-    cols_mov = st.columns(min(len(tipos_movimentacao), 4))
-    for i, op in enumerate(tipos_movimentacao):
-        with cols_mov[i % len(cols_mov)]:
-            ativo = tipo_nota == op
-            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_tipo_nota_{i}", use_container_width=True, type="primary" if ativo else "secondary"):
-                st.session_state["sel_tipo_nota"] = op
-                st.rerun()
-    tipo_nota = st.session_state.get("sel_tipo_nota", None)
-    if not tipo_nota:
-        st.info("Selecione o tipo de movimentação para continuar.")
-        return
-
-    # === FLUXO ESPECIAL: Informar fechamento de período (só entrega + período) ===
-    if tipo_nota == TIPO_FECHAMENTO:
-        st.markdown("---")
-        st.markdown("#### 📅 Qual fechamento parcial? *")
-        parciais = ["1º Parcial", "2º Parcial", "3º Parcial", "4º Parcial"]
-        parcial_sel = st.session_state.get("sel_parcial", None)
-        cols_p = st.columns(4)
-        for i, op in enumerate(parciais):
-            with cols_p[i]:
-                ativo = parcial_sel == op
-                if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_parcial_{i}", use_container_width=True, type="primary" if ativo else "secondary"):
-                    st.session_state["sel_parcial"] = op
-                    st.rerun()
-        parcial = st.session_state.get("sel_parcial", None)
-
-        st.markdown("---")
-        obs_fech = st.text_area("📝 Observação (opcional)", placeholder="Informações adicionais sobre a entrega...", key="fech_obs")
-        atrasos_fech = st.text_area("⏰ Atrasos de entregáveis (opcional)", placeholder="Descreva eventuais atrasos de entregáveis...", key="fech_atrasos")
-        arq_fech = st.file_uploader("📎 Anexo de documentos (opcional)",
-            type=["pdf","png","jpg","jpeg","xlsx","xml","docx"], key="fech_arquivo")
-
-        st.markdown("---")
-        if st.button("📨 Enviar Chamado", use_container_width=True, key="enviar_fechamento"):
-            if preview:
-                st.info("👁️ Modo visualização: nenhum chamado foi criado.")
-                return
-            if not parcial:
-                st.error("⚠️ Selecione o fechamento parcial.")
-                return
-            anexo_nome = None
-            anexo_bytes = None
-            if arq_fech is not None:
-                anexo_nome = arq_fech.name
-                anexo_bytes = arq_fech.getvalue()
-            protocolo = registrar_fechamento(parcial, obs_fech, anexo_nome, anexo_bytes, atrasos_fech)
-            for k in ["sel_tipo_nota", "sel_parcial", "fech_obs", "fech_atrasos", "fech_arquivo"]:
-                st.session_state.pop(k, None)
-            st.cache_data.clear()
-            st.success(f"✅ Chamado registrado! Protocolo: **{protocolo}**")
-            st.balloons()
-        return
-
-    # === FLUXO NORMAL ===
-    eh_compra = "compra" in tipo_nota.lower()
-    if eh_compra:
-        data_entrada = st.date_input("📥 Data da Nota *", value=None, key="data_entrada")
-        data_negociacao = None
-    else:
-        data_negociacao = st.date_input("🤝 Data de Negociação *", value=None, key="data_negociacao")
-        data_entrada = None
-
-    st.markdown("---")
-    st.markdown("#### 📋 Abertura de Período / Descontabilização *")
-    tipos_filtrados = filtrar_inconsistencias(tipos, tipo_nota)
-    tipos_com_outros = tipos_filtrados + ["Outros"]
-    tipo_sel = st.session_state.get("sel_tipo", None)
-    cols_tipo = st.columns(min(len(tipos_com_outros), 4))
-    for i, op in enumerate(tipos_com_outros):
-        with cols_tipo[i % len(cols_tipo)]:
-            ativo = tipo_sel == op
-            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_tipo_{i}", use_container_width=True, type="primary" if ativo else "secondary"):
-                st.session_state["sel_tipo"] = op
-                st.rerun()
-    tipo = st.session_state.get("sel_tipo", None)
-    tipo_outros_desc = ""
-    if tipo == "Outros":
-        tipo_outros_desc = st.text_area("📝 Descreva a solicitação *", placeholder="Descreva detalhadamente...", key="outros_desc")
-
-    st.markdown("---")
-    st.markdown("#### 🏢 Empresa *")
-    empresa_sel = st.session_state.get("sel_empresa", None)
-    cols_emp = st.columns(5)
-    for i, op in enumerate(["1","2","6","13","14"]):
-        with cols_emp[i]:
-            ativo = empresa_sel == op
-            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_empresa_{i}", use_container_width=True, type="primary" if ativo else "secondary"):
-                st.session_state["sel_empresa"] = op
-                st.rerun()
-    empresa = st.session_state.get("sel_empresa", None)
-
-    st.markdown("#### 🚦 Prioridade *")
-    prio_sel = st.session_state.get("sel_prioridade", None)
-    cols_prio = st.columns(2)
-    for i, op in enumerate(["Normal","Urgente"]):
-        with cols_prio[i]:
-            ativo = prio_sel == op
-            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_prio_{i}", use_container_width=True, type="primary" if ativo else "secondary"):
-                st.session_state["sel_prioridade"] = op
-                st.rerun()
-    prioridade = st.session_state.get("sel_prioridade", None)
-
-    st.markdown("#### 🔄 NF retornará ao sistema? *")
-    nf_sel = st.session_state.get("sel_nf", None)
-    cols_nf = st.columns(2)
-    for i, op in enumerate(["Sim","Não"]):
-        with cols_nf[i]:
-            ativo = nf_sel == op
-            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_nf_{i}", use_container_width=True, type="primary" if ativo else "secondary"):
-                st.session_state["sel_nf"] = op
-                st.rerun()
-    nf_retorna = st.session_state.get("sel_nf", None)
-
-    st.markdown("#### 💰 Financeiro Baixado? *")
-    fin_sel = st.session_state.get("sel_fin", None)
-    cols_fin = st.columns(2)
-    for i, op in enumerate(["Sim","Não"]):
-        with cols_fin[i]:
-            ativo = fin_sel == op
-            if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"sel_fin_{i}", use_container_width=True, type="primary" if ativo else "secondary"):
-                st.session_state["sel_fin"] = op
-                st.rerun()
-    fin_baixado = st.session_state.get("sel_fin", None)
-
-    setores_copia_disp = carregar_setores_disponiveis(setor_atual)
-
-    st.markdown("---")
-    with st.form("form_chamado", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            solicitante = st.text_input("🙋 Nome do Solicitante *")
-            nome_parceiro = st.text_input("👤 Nome do Parceiro *")
-        with col2:
-            numero_nota = st.text_input("📄 Número da Nota *")
-            valor = st.text_input("💰 Valor *", placeholder="0,00")
-        col3, col4 = st.columns(2)
-        with col3:
-            nu_financeiro = st.text_input("🔢 NU Financeiro (opcional)")
-        with col4:
-            nu_nota = st.text_input("🔢 NU Nota (opcional)")
-        copia_sel = st.multiselect("👥 Setores em cópia (opcional)", setores_copia_disp,
-            help="Os setores marcados recebem e-mail e podem acompanhar e responder este chamado.")
-        arquivo = st.file_uploader("📎 Anexo (opcional)", type=["pdf","png","jpg","xlsx","xml"])
-        observacao = st.text_area("📝 Observação Complementar", placeholder="Informações adicionais...")
-        enviar = st.form_submit_button("📨 Enviar Chamado", use_container_width=True)
-
-    if enviar:
-        if preview:
-            st.info("👁️ Modo visualização: nenhum chamado foi criado.")
-            return
-        erros = []
-        if not tipo: erros.append("Tipo")
-        if tipo == "Outros" and not tipo_outros_desc.strip(): erros.append("Descrição")
-        if not empresa: erros.append("Empresa")
-        if not prioridade: erros.append("Prioridade")
-        if not nf_retorna: erros.append("NF retornará")
-        if not fin_baixado: erros.append("Financeiro Baixado")
-        if not solicitante.strip(): erros.append("Solicitante")
-        if not nome_parceiro.strip(): erros.append("Parceiro")
-        if not numero_nota.strip(): erros.append("Número da Nota")
-        if not valor.strip(): erros.append("Valor")
-        if eh_compra and not data_entrada: erros.append("Data da Nota")
-        if not eh_compra and not data_negociacao: erros.append("Data de Negociação")
-        if erros:
-            st.error(f"⚠️ Preencha: {', '.join(erros)}")
-            return
-
-        bloqueado, msg = verificar_bloqueio(data_entrada if eh_compra else data_negociacao)
-        if bloqueado:
-            st.error(msg)
-            return
-
-        arquivo_nome = None
-        if arquivo:
-            os.makedirs("uploads", exist_ok=True)
-            arquivo_nome = f"{datetime.now(BRASILIA).strftime('%Y%m%d%H%M%S')}_{arquivo.name}"
-            with open(f"uploads/{arquivo_nome}", "wb") as f:
-                f.write(arquivo.getbuffer())
-
-        try:
-            valor_float = converter_valor(valor)
-        except:
-            st.error("⚠️ Valor inválido.")
-            return
-
-        tipo_final = f"Outros: {tipo_outros_desc.strip()}" if tipo == "Outros" else tipo
-        total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
-        protocolo = f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-{str(total+1).zfill(4)}"
-
-        run_query("""INSERT INTO chamados (protocolo,setor,empresa,tipo_inconsistencia,prioridade,nf_retorna,
-            solicitante,nome_parceiro,numero_nota,tipo_nota,data_entrada,data_saida,data_negociacao,
-            valor,observacao,arquivo_nome,status,aberto_em,financeiro_baixado,num_unico_financeiro,num_unico_nota)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-            (protocolo, st.session_state.setor, empresa, tipo_final, prioridade, nf_retorna,
-             solicitante.strip(), nome_parceiro.strip(), numero_nota.strip(), tipo_nota,
-             data_entrada or None, None, data_negociacao or None,
-             valor_float, observacao.strip(), arquivo_nome, "Aberto",
-             datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), fin_baixado,
-             nu_financeiro.strip() or None, nu_nota.strip() or None))
-
-        # Salva setores em cópia e notifica
-        if copia_sel:
-            salvar_copias(protocolo, copia_sel)
-            for s in copia_sel:
-                try:
-                    email_s = buscar_email_setor(s)
-                    if email_s:
-                        email_setor_em_copia(email_s, protocolo, s, st.session_state.setor)
-                except:
-                    pass
-
-        try:
-            email_cont = buscar_email_contabilidade()
-            if email_cont:
-                email_novo_chamado(email_cont, protocolo, st.session_state.setor,
-                    tipo_final, prioridade, nome_parceiro.strip(), numero_nota.strip(), solicitante.strip(),
-                    nu_financeiro=nu_financeiro.strip(), nu_nota=nu_nota.strip())
-        except:
-            pass
-
-        for k in ["sel_tipo_nota","sel_tipo","sel_parcial","sel_empresa","sel_prioridade","sel_nf","sel_fin","outros_desc","data_entrada","data_negociacao"]:
-            st.session_state.pop(k, None)
-
-        st.cache_data.clear()
-        st.success(f"✅ Chamado registrado! Protocolo: **{protocolo}**")
-        st.balloons()
-
-def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, aberto_em, solicitante, fin_baixado, setor, eh_contabilidade=False, protocolo_aberto=None):
-    status_cor = {"Aberto":"🔴","Em andamento":"🟡","Resolvido":"🟢","Cancelado":"⚫"}
-    expanded = protocolo == protocolo_aberto
-    label = f"{status_cor.get(status,'⚪')} {protocolo} — {parceiro} | NF: {nf}"
-    if eh_contabilidade:
-        label += f" | {setor}"
-    label += f" | {status}"
-
-    with st.expander(label, expanded=expanded):
-        c1,c2,c3,c4 = st.columns(4)
-        c1.markdown(f"**Empresa:** {empresa}")
-        c2.markdown(f"**Tipo:** {tipo}")
-        c3.markdown(f"**Prioridade:** {prioridade}")
-        c4.markdown(f"**Solicitante:** {solicitante or '—'}")
-        c1.markdown(f"**Fin. Baixado:** {fin_baixado or '—'}")
-        st.markdown(f"**Aberto em:** {aberto_em}")
-
-        copias = carregar_copias(protocolo)
-        if copias:
-            st.markdown(f"**👥 Em cópia:** {', '.join(copias)}")
-
-        # Observação e anexo (se houver)
-        det = run_query("SELECT observacao, arquivo_nome, anexo_dados, num_unico_financeiro, num_unico_nota, atrasos_entregaveis FROM chamados WHERE protocolo=%s",
-                        (protocolo,), fetch=True)
-        if det:
-            obs_txt, arq_nome, arq_dados, nu_fin, nu_nt, atrasos_txt = det[0]
-            if nu_fin:
-                st.markdown(f"**🔢 Número Único Financeiro:** {nu_fin}")
-            if nu_nt:
-                st.markdown(f"**🔢 Número Único da Nota:** {nu_nt}")
-            if atrasos_txt:
-                st.markdown(f"**⏰ Atrasos de entregáveis:** {atrasos_txt}")
-            if obs_txt:
-                st.markdown(f"**📝 Observação:** {obs_txt}")
-            if arq_dados:
-                import base64
-                try:
-                    st.download_button("📎 Baixar anexo" + (f" ({arq_nome})" if arq_nome else ""),
-                        data=base64.b64decode(arq_dados),
-                        file_name=arq_nome or f"{protocolo}_anexo",
-                        key=f"dl_{protocolo}")
-                except:
-                    st.caption("📎 Anexo disponível, mas não foi possível carregá-lo.")
-            elif arq_nome:
-                st.caption(f"📎 Anexo: {arq_nome}")
-
-        # Atualizar status (somente contabilidade)
-        if eh_contabilidade:
-            st.markdown("---")
-            novo_status = st.selectbox("Atualizar status", ["Aberto","Em andamento","Resolvido","Cancelado"],
-                index=["Aberto","Em andamento","Resolvido","Cancelado"].index(status), key=f"s_{protocolo}")
-            if st.button("💾 Salvar status", key=f"b_{protocolo}"):
-                agora = datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S")
-                run_query("""UPDATE chamados SET status=%s, atendido_em=COALESCE(atendido_em,%s),
-                    resolvido_em=CASE WHEN %s='Resolvido' THEN %s ELSE resolvido_em END WHERE protocolo=%s""",
-                    (novo_status, agora, novo_status, agora, protocolo))
-                try:
-                    destinos = emails_interessados(protocolo, setor)
-                    if novo_status == "Resolvido":
-                        for ed in destinos:
-                            email_conclusao_chamado(None, ed, protocolo, tipo, agora)
+        for uid, nome, email, setor_nome, ativo in usuarios:
+            status_icon = "🟢" if ativo else "🔴"
+            with st.expander(f"{status_icon} {nome} — {email or '—'}"):
+                c1, c2 = st.columns(2)
+                novo_email = c1.text_input("E-mail do setor", value=email or "", key=f"email_{uid}", placeholder="setor@grupolle.com.br")
+                nova_senha = c2.text_input("Nova senha", key=f"s_{uid}", placeholder="Deixe em branco para nao alterar")
+                novo_ativo = st.selectbox("Status", [1, 0], index=0 if ativo else 1,
+                    format_func=lambda x: "Ativo" if x == 1 else "Inativo", key=f"a_{uid}")
+                if st.button("💾 Salvar", key=f"u_{uid}"):
+                    if nova_senha.strip():
+                        run_query("UPDATE usuarios SET email=%s, senha=%s, ativo=%s, primeiro_acesso=1 WHERE id=%s",
+                            (novo_email.strip().lower(), nova_senha.strip(), novo_ativo, uid))
                     else:
-                        for ed in destinos:
-                            email_atualizacao_chamado(ed, protocolo, novo_status, setor)
-                except:
-                    pass
-                st.cache_data.clear()
-                st.success("✅ Atualizado!")
-                st.rerun()
-
-        # Editar setores em cópia (contabilidade ou o setor que abriu)
-        eh_dono = (st.session_state.perfil != "contabilidade" and st.session_state.setor == setor)
-        if eh_contabilidade or eh_dono:
-            st.markdown("---")
-            setores_disp = carregar_setores_disponiveis(setor)
-            default_copias = [c for c in copias if c in setores_disp]
-            novas_copias = st.multiselect("👥 Setores em cópia", setores_disp,
-                default=default_copias, key=f"copia_{protocolo}")
-            if st.button("💾 Salvar cópia", key=f"savecopia_{protocolo}"):
-                adicionados = set(novas_copias) - set(copias)
-                salvar_copias(protocolo, novas_copias)
-                for s in adicionados:
-                    try:
-                        email_s = buscar_email_setor(s)
-                        if email_s:
-                            email_setor_em_copia(email_s, protocolo, s, setor)
-                    except:
-                        pass
-                st.cache_data.clear()
-                st.success("✅ Cópia atualizada!")
-                st.rerun()
+                        run_query("UPDATE usuarios SET email=%s, ativo=%s WHERE id=%s",
+                            (novo_email.strip().lower(), novo_ativo, uid))
+                    st.cache_data.clear()
+                    st.success("✅ Atualizado!")
+                    st.rerun()
 
         st.markdown("---")
-        exibir_chat(protocolo, setor)
+        st.subheader("➕ Novo Setor")
+        with st.form("form_setor"):
+            c1, c2, c3 = st.columns(3)
+            novo_nome = c1.text_input("Nome do Setor *", placeholder="ex: Fiscal")
+            novo_email_s = c2.text_input("E-mail *", placeholder="fiscal@grupolle.com.br")
+            nova_senha_s = c3.text_input("Senha *", placeholder="ex: Fiscal@2026")
+            if st.form_submit_button("➕ Adicionar Setor", use_container_width=True):
+                if not novo_nome.strip() or not novo_email_s.strip() or not nova_senha_s.strip():
+                    st.error("Preencha todos os campos.")
+                elif not novo_email_s.strip().endswith("@grupolle.com.br"):
+                    st.error("Use e-mail @grupolle.com.br")
+                else:
+                    try:
+                        run_query("""INSERT INTO usuarios (nome, email, login, senha, perfil, setor_nome, ativo, primeiro_acesso)
+                            VALUES (%s, %s, %s, %s, 'setor', %s, 1, 0)""",
+                            (novo_nome.strip(), novo_email_s.strip().lower(),
+                             novo_email_s.strip().lower(), nova_senha_s.strip(), novo_nome.strip()))
+                        st.success(f"✅ Setor '{novo_nome}' criado!")
+                        st.rerun()
+                    except:
+                        st.error("E-mail ja existe.")
 
-def tela_meus_chamados(protocolo_aberto=None):
-    st.title("📋 Minhas Solicitações")
-    st.markdown("---")
-    rows = carregar_meus_chamados(st.session_state.setor)
-    if not rows:
-        st.info("Nenhum chamado registrado ainda.")
-        return
-    for protocolo, tipo, empresa, status, prioridade, parceiro, nf, aberto_em, solicitante, fin_baixado in rows:
-        exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf,
-                       aberto_em, solicitante, fin_baixado, st.session_state.setor,
-                       eh_contabilidade=False, protocolo_aberto=protocolo_aberto)
+    with aba[1]:
+        st.subheader("Gerenciar Tipos de Inconsistencia")
+        st.markdown("Edite o nome e selecione a quais **Tipos de Movimentacao** cada inconsistencia pertence. "
+                    "Inconsistencias sem nenhum vinculo aparecem em todos os tipos.")
+        st.markdown("---")
 
-def tela_acompanhamento(protocolo_aberto=None):
-    st.title("👀 Solicitações em Acompanhamento")
-    st.markdown("Chamados em que seu setor foi incluído em cópia.")
-    st.markdown("---")
-    rows = carregar_chamados_acompanhamento(st.session_state.setor)
-    if not rows:
-        st.info("Nenhum chamado em acompanhamento.")
-        return
-    for protocolo, tipo, empresa, status, prioridade, parceiro, nf, aberto_em, solicitante, fin_baixado, setor_dono in rows:
-        exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf,
-                       aberto_em, solicitante, fin_baixado, setor_dono,
-                       eh_contabilidade=False, protocolo_aberto=protocolo_aberto)
+        # Opcoes de tipos de movimentacao para o vinculo
+        movs_db = run_query("SELECT nome FROM tipos_nota WHERE ativo=1 ORDER BY nome", fetch=True)
+        movs_opcoes = [m[0] for m in movs_db] if movs_db else []
 
-def tela_todos_chamados(protocolo_aberto=None):
-    st.title("📋 Todos os Chamados")
-    st.markdown("---")
-    rows = carregar_todos_chamados()
-    if not rows:
-        st.info("Nenhum chamado registrado ainda.")
-        return
-    c1,c2,c3 = st.columns(3)
-    filtro_status = c1.selectbox("Status", ["Todos","Aberto","Em andamento","Resolvido","Cancelado"])
-    filtro_empresa = c2.selectbox("Empresa", ["Todas","1","2","6","13","14"])
-    filtro_setor = c3.text_input("Setor")
-    for protocolo, setor, tipo, empresa, status, prioridade, parceiro, nf, aberto_em, solicitante, fin_baixado in rows:
-        if filtro_status != "Todos" and status != filtro_status: continue
-        if filtro_empresa != "Todas" and empresa != filtro_empresa: continue
-        if filtro_setor and filtro_setor.lower() not in setor.lower(): continue
-        exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf,
-                       aberto_em, solicitante, fin_baixado, setor,
-                       eh_contabilidade=True, protocolo_aberto=protocolo_aberto)
+        if "lista_tipos" not in st.session_state or st.session_state.get("reload_tipos", True):
+            tipos_db = run_query("SELECT id, nome FROM tipos_inconsistencia WHERE ativo=1 ORDER BY nome", fetch=True)
+            vinc_db = run_query("SELECT inconsistencia, movimentacao FROM vinculo_inconsistencia_movimentacao", fetch=True)
+            mapa_vinc = {}
+            if vinc_db:
+                for inc, mov in vinc_db:
+                    mapa_vinc.setdefault(inc, []).append(mov)
+            st.session_state.lista_tipos = [{"id": t[0], "nome": t[1], "movs": mapa_vinc.get(t[1], [])} for t in tipos_db]
+            st.session_state.reload_tipos = False
+
+        indices_remover = []
+        for i, item in enumerate(st.session_state.lista_tipos):
+            chave = str(item.get("id", "novo"))
+            c1, c2, c3 = st.columns([4, 4, 1])
+            with c1:
+                novo_nome = st.text_input(f"Inconsistencia {i+1}", value=item["nome"],
+                    key=f"tipo_edit_{i}_{chave}", label_visibility="collapsed", placeholder="Nome da inconsistencia")
+                st.session_state.lista_tipos[i]["nome"] = novo_nome
+            with c2:
+                movs_validas = [m for m in item.get("movs", []) if m in movs_opcoes]
+                sel = st.multiselect("Tipos de Movimentacao", movs_opcoes, default=movs_validas,
+                    key=f"tipo_movs_{i}_{chave}", label_visibility="collapsed",
+                    placeholder="Pertence a quais tipos? (vazio = todos)")
+                st.session_state.lista_tipos[i]["movs"] = sel
+            with c3:
+                if st.button("X", key=f"rem_{i}_{chave}", help="Remover"):
+                    indices_remover.append(i)
+
+        if indices_remover:
+            for idx in sorted(indices_remover, reverse=True):
+                st.session_state.lista_tipos.pop(idx)
+            st.rerun()
+
+        st.markdown("---")
+        col_add, col_save = st.columns(2)
+        with col_add:
+            if st.button("Adicionar novo tipo", use_container_width=True):
+                st.session_state.lista_tipos.append({"id": None, "nome": "", "movs": []})
+                st.rerun()
+        with col_save:
+            if st.button("Salvar alteracoes", use_container_width=True, type="primary"):
+                st.session_state.confirmar_save_tipos = True
+
+        if st.session_state.get("confirmar_save_tipos"):
+            st.warning("Tem certeza que deseja salvar?")
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                if st.button("Sim, salvar", use_container_width=True, key="confirmar_sim"):
+                    run_query("UPDATE tipos_inconsistencia SET ativo=0")
+                    # Reescreve todos os vinculos a partir da tela
+                    run_query("DELETE FROM vinculo_inconsistencia_movimentacao")
+                    for item in st.session_state.lista_tipos:
+                        nome_item = item["nome"].strip()
+                        if not nome_item:
+                            continue
+                        if item["id"]:
+                            run_query("UPDATE tipos_inconsistencia SET nome=%s, ativo=1 WHERE id=%s",
+                                      (nome_item, item["id"]))
+                        else:
+                            run_query("INSERT INTO tipos_inconsistencia (nome,ativo) VALUES (%s,1) ON CONFLICT (nome) DO UPDATE SET ativo=1",
+                                      (nome_item,))
+                        for mov in item.get("movs", []):
+                            run_query("INSERT INTO vinculo_inconsistencia_movimentacao (inconsistencia, movimentacao) VALUES (%s,%s)",
+                                      (nome_item, mov))
+                    st.session_state.confirmar_save_tipos = False
+                    st.session_state.reload_tipos = True
+                    st.cache_data.clear()
+                    st.cache_resource.clear()
+                    st.success("✅ Tipos e vinculos salvos!")
+                    st.rerun()
+            with cc2:
+                if st.button("Cancelar", use_container_width=True, key="confirmar_nao"):
+                    st.session_state.confirmar_save_tipos = False
+                    st.session_state.reload_tipos = True
+                    st.rerun()
+
+    with aba[2]:
+        st.subheader("Gerenciar Tipos de Movimentacao")
+        st.markdown("Edite, adicione ou remova os tipos de movimentacao.")
+        st.markdown("---")
+
+        if "lista_tipos_nota" not in st.session_state or st.session_state.get("reload_tipos_nota", True):
+            tipos_nota_db = run_query("SELECT id, nome FROM tipos_nota WHERE ativo=1 ORDER BY nome", fetch=True)
+            st.session_state.lista_tipos_nota = [{"id": t[0], "nome": t[1]} for t in tipos_nota_db]
+            st.session_state.reload_tipos_nota = False
+
+        indices_remover_nota = []
+        for i, item in enumerate(st.session_state.lista_tipos_nota):
+            c1, c2 = st.columns([5, 1])
+            with c1:
+                chave = str(item.get("id", "novo"))
+                novo_nome = st.text_input(f"Tipo {i+1}", value=item["nome"],
+                    key=f"nota_edit_{i}_{chave}", label_visibility="collapsed")
+                st.session_state.lista_tipos_nota[i]["nome"] = novo_nome
+            with c2:
+                if st.button("X", key=f"rem_nota_{i}_{chave}", help="Remover"):
+                    indices_remover_nota.append(i)
+
+        if indices_remover_nota:
+            for idx in sorted(indices_remover_nota, reverse=True):
+                st.session_state.lista_tipos_nota.pop(idx)
+            st.rerun()
+
+        st.markdown("---")
+        col_add2, col_save2 = st.columns(2)
+        with col_add2:
+            if st.button("Adicionar novo tipo", use_container_width=True, key="add_nota"):
+                st.session_state.lista_tipos_nota.append({"id": None, "nome": ""})
+                st.rerun()
+        with col_save2:
+            if st.button("Salvar tipos de movimentacao", use_container_width=True, type="primary"):
+                st.session_state.confirmar_save_nota = True
+
+        if st.session_state.get("confirmar_save_nota"):
+            st.warning("Tem certeza que deseja salvar?")
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                if st.button("Sim, salvar", use_container_width=True, key="confirmar_sim_nota"):
+                    run_query("UPDATE tipos_nota SET ativo=0")
+                    for item in st.session_state.lista_tipos_nota:
+                        nome_item = item["nome"].strip()
+                        if not nome_item: continue
+                        if item["id"]:
+                            run_query("UPDATE tipos_nota SET nome=%s, ativo=1 WHERE id=%s",
+                                      (nome_item, item["id"]))
+                        else:
+                            run_query("INSERT INTO tipos_nota (nome,ativo) VALUES (%s,1) ON CONFLICT (nome) DO UPDATE SET ativo=1",
+                                      (nome_item,))
+                    st.session_state.confirmar_save_nota = False
+                    st.session_state.reload_tipos_nota = True
+                    st.cache_data.clear()
+                    st.cache_resource.clear()
+                    st.success("✅ Tipos de movimentacao salvos!")
+                    st.rerun()
+            with cc2:
+                if st.button("Cancelar", use_container_width=True, key="confirmar_nao_nota"):
+                    st.session_state.confirmar_save_nota = False
+                    st.session_state.reload_tipos_nota = True
+                    st.rerun()
+
+    with aba[3]:
+        st.subheader("📧 Historico de Notificacoes")
+        st.markdown("---")
+        c1, c2 = st.columns(2)
+        filtro_tipo = c1.selectbox("Tipo", ["Todos","novo_chamado","atualizacao_status","nova_mensagem","conclusao","solicitacao_tratativa"])
+        filtro_sucesso = c2.selectbox("Status envio", ["Todos","Enviado","Falhou"])
+
+        notifs = run_query("""SELECT protocolo, destinatario, assunto, tipo, enviado_em, sucesso
+            FROM notificacoes ORDER BY enviado_em DESC LIMIT 100""", fetch=True)
+
+        if not notifs:
+            st.info("Nenhuma notificacao registrada ainda.")
+        else:
+            for protocolo, destinatario, assunto, tipo, enviado_em, sucesso in notifs:
+                if filtro_tipo != "Todos" and tipo != filtro_tipo: continue
+                if filtro_sucesso == "Enviado" and not sucesso: continue
+                if filtro_sucesso == "Falhou" and sucesso: continue
+                icone = "✅" if sucesso else "❌"
+                st.markdown(f"""
+                <div style='background:white;border:1px solid #e8e8e8;border-radius:8px;
+                padding:10px 14px;margin-bottom:6px;'>
+                    <div style='display:flex;justify-content:space-between;align-items:center;'>
+                        <span style='font-size:13px;font-weight:600;color:#041747;'>{icone} {assunto}</span>
+                        <span style='font-size:11px;color:#999;'>{enviado_em}</span>
+                    </div>
+                    <p style='font-size:12px;color:#666;margin:4px 0 0;'>
+                    Para: {destinatario} · Tipo: {tipo} · Protocolo: {protocolo or "—"}</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+    with aba[4]:
+        st.subheader("👁️ Visualizar Tela do Setor")
+        st.markdown("Veja exatamente como os setores enxergam a tela de abertura de chamado. "
+                    "É apenas uma simulação — **nenhum chamado é criado** aqui.")
+        st.markdown("---")
+        setores_db = run_query("SELECT setor_nome, nome FROM usuarios WHERE perfil='setor' AND ativo=1 ORDER BY nome", fetch=True)
+        opcoes = [ (s[0] or s[1]) for s in setores_db ] if setores_db else []
+        if not opcoes:
+            st.info("Nenhum setor ativo cadastrado para simular.")
+        else:
+            setor_sim = st.selectbox("Simular como qual setor?", opcoes, key="preview_setor_sel")
+            st.markdown("---")
+            try:
+                from modules.chamados import tela_novo_chamado
+                tela_novo_chamado(preview=True, setor_preview=setor_sim)
+            except Exception as e:
+                st.error(f"Não foi possível carregar a visualização: {e}")
