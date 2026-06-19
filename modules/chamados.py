@@ -228,9 +228,12 @@ def registrar_fechamento(parcial, observacao="", anexo_nome=None, anexo_bytes=No
 
     return protocolo
 
-def tela_novo_chamado():
+def tela_novo_chamado(preview=False, setor_preview=None):
+    setor_atual = setor_preview if (preview and setor_preview) else st.session_state.get("setor")
     st.title("➕ Novo Chamado")
-    st.markdown(f"**Setor:** {st.session_state.setor}")
+    if preview:
+        st.info("👁️ Modo visualização — esta é a tela que os setores enxergam. Nenhum chamado será criado aqui.")
+    st.markdown(f"**Setor:** {setor_atual}")
     st.markdown("Preencha todos os campos obrigatórios.")
     st.markdown("---")
 
@@ -278,6 +281,9 @@ def tela_novo_chamado():
 
         st.markdown("---")
         if st.button("📨 Enviar Chamado", use_container_width=True, key="enviar_fechamento"):
+            if preview:
+                st.info("👁️ Modo visualização: nenhum chamado foi criado.")
+                return
             if not parcial:
                 st.error("⚠️ Selecione o fechamento parcial.")
                 return
@@ -365,7 +371,7 @@ def tela_novo_chamado():
                 st.rerun()
     fin_baixado = st.session_state.get("sel_fin", None)
 
-    setores_copia_disp = carregar_setores_disponiveis(st.session_state.setor)
+    setores_copia_disp = carregar_setores_disponiveis(setor_atual)
 
     st.markdown("---")
     with st.form("form_chamado", clear_on_submit=True):
@@ -388,6 +394,9 @@ def tela_novo_chamado():
         enviar = st.form_submit_button("📨 Enviar Chamado", use_container_width=True)
 
     if enviar:
+        if preview:
+            st.info("👁️ Modo visualização: nenhum chamado foi criado.")
+            return
         erros = []
         if not tipo: erros.append("Tipo")
         if tipo == "Outros" and not tipo_outros_desc.strip(): erros.append("Descrição")
