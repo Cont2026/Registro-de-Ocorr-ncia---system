@@ -18,12 +18,14 @@ def buscar_setores():
         fetch=True)
     return rows if rows else []
 
-def email_solicitacao_tratativa(email_setor, setor_nome, empresa, tipo, parceiro, numero_nota, tipo_nota, valor, observacao, criado_por, anexos=None):
+def email_solicitacao_tratativa(email_setor, setor_nome, empresa, tipo, parceiro, numero_nota, tipo_nota, valor, observacao, criado_por, anexos=None, nu_financeiro="", nu_nota=""):
     url = get_url_base()
     assunto = "ROC — Solicitacao de Tratativa - Origem Contabilidade"
     aviso_anexo = ""
     if anexos:
         aviso_anexo = "<p style='font-size:12px;color:#041747;margin:16px 0 0;'>📎 Esta solicitação contém anexo(s).</p>"
+    linha_nu_fin = f"<tr><td style='padding:8px;font-weight:600;color:#041747;'>Nº Único Financeiro</td><td style='padding:8px;color:#333;'>{nu_financeiro}</td></tr>" if nu_financeiro else ""
+    linha_nu_nota = f"<tr><td style='padding:8px;background:#f5f7fa;font-weight:600;color:#041747;'>Nº Único da Nota</td><td style='padding:8px;color:#333;'>{nu_nota}</td></tr>" if nu_nota else ""
     corpo = f"""
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;padding:20px;border-radius:12px;">
         <div style="background:#041747;padding:20px;border-radius:8px 8px 0 0;text-align:center;">
@@ -44,6 +46,8 @@ def email_solicitacao_tratativa(email_setor, setor_nome, empresa, tipo, parceiro
                 <tr><td style="padding:8px;font-weight:600;color:#041747;">Tipo de Movimentacao</td><td style="padding:8px;color:#333;">{tipo_nota or "—"}</td></tr>
                 <tr><td style="padding:8px;background:#f5f7fa;font-weight:600;color:#041747;">Nome do Parceiro</td><td style="padding:8px;color:#333;">{parceiro or "—"}</td></tr>
                 <tr><td style="padding:8px;font-weight:600;color:#041747;">Numero da Nota</td><td style="padding:8px;color:#333;">{numero_nota or "—"}</td></tr>
+                {linha_nu_fin}
+                {linha_nu_nota}
                 <tr><td style="padding:8px;background:#f5f7fa;font-weight:600;color:#041747;">Valor</td><td style="padding:8px;color:#333;">{valor or "—"}</td></tr>
             </table>
 
@@ -149,6 +153,11 @@ def tela_tratativa():
             numero_nota = st.text_input("📄 Numero da Nota")
         with col2:
             valor = st.text_input("💰 Valor", placeholder="0,00")
+        col3, col4 = st.columns(2)
+        with col3:
+            nu_financeiro = st.text_input("🔢 NU Financeiro (opcional)")
+        with col4:
+            nu_nota = st.text_input("🔢 NU Nota (opcional)")
         copia_sel = st.multiselect("👥 Setores em cópia (opcional)", nomes_copia,
             help="Esses setores recebem o e-mail da solicitação em cópia.")
         arquivo = st.file_uploader("📎 Anexo (opcional)", type=["pdf","png","jpg","jpeg","xlsx","xml","docx"])
@@ -181,18 +190,20 @@ def tela_tratativa():
 
         run_query("""INSERT INTO solicitacoes_tratativa
             (setor_destino, empresa, tipo_inconsistencia, nome_parceiro, numero_nota,
-            tipo_nota, valor, observacao, criado_por, criado_em, status)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            tipo_nota, valor, observacao, criado_por, criado_em, status, num_unico_financeiro, num_unico_nota)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (setor_nome, empresa or "", tipo_final, nome_parceiro.strip(),
              numero_nota.strip(), tipo_nota or "", valor.strip(),
              observacao.strip(), st.session_state.usuario,
-             datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), "Pendente"))
+             datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), "Pendente",
+             nu_financeiro.strip() or None, nu_nota.strip() or None))
 
         ok = email_solicitacao_tratativa(
             email_setor, setor_nome, empresa or "—", tipo_final,
             nome_parceiro.strip(), numero_nota.strip(),
             tipo_nota or "—", valor.strip(), observacao.strip(),
-            st.session_state.usuario, anexos=anexos)
+            st.session_state.usuario, anexos=anexos,
+            nu_financeiro=nu_financeiro.strip(), nu_nota=nu_nota.strip())
 
         # Envia a mesma solicitação (com anexo) em cópia para os setores marcados
         copias_enviadas = []
@@ -204,7 +215,8 @@ def tela_tratativa():
                         em, setor_nome, empresa or "—", tipo_final,
                         nome_parceiro.strip(), numero_nota.strip(),
                         tipo_nota or "—", valor.strip(), observacao.strip(),
-                        st.session_state.usuario, anexos=anexos)
+                        st.session_state.usuario, anexos=anexos,
+                        nu_financeiro=nu_financeiro.strip(), nu_nota=nu_nota.strip())
                     copias_enviadas.append(n)
                 except:
                     pass
