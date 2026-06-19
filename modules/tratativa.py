@@ -18,6 +18,22 @@ def buscar_setores():
         fetch=True)
     return rows if rows else []
 
+@st.cache_data(ttl=120)
+def carregar_vinculos_trat():
+    rows = run_query("SELECT inconsistencia, movimentacao FROM vinculo_inconsistencia_movimentacao", fetch=True)
+    mapa = {}
+    com_vinculo = set()
+    if rows:
+        for inc, mov in rows:
+            mapa.setdefault(mov, set()).add(inc)
+            com_vinculo.add(inc)
+    return mapa, com_vinculo
+
+def filtrar_inconsistencias_trat(tipos_lista, tipo_mov):
+    mapa, com_vinculo = carregar_vinculos_trat()
+    vinc_do_tipo = mapa.get(tipo_mov, set())
+    return [inc for inc in tipos_lista if (inc in vinc_do_tipo) or (inc not in com_vinculo)]
+
 def email_solicitacao_tratativa(email_setor, setor_nome, empresa, tipo, parceiro, numero_nota, tipo_nota, valor, observacao, criado_por, anexos=None, nu_financeiro="", nu_nota=""):
     url = get_url_base()
     assunto = "ROC — Solicitacao de Tratativa - Origem Contabilidade"
@@ -135,7 +151,8 @@ def tela_tratativa():
 
     st.markdown("#### 📋 Tipo de Inconsistencia")
     tipo_sel = st.session_state.get("trat_tipo", None)
-    tipos_com_outros = tipos_lista + ["Outros"]
+    tipos_filtrados = filtrar_inconsistencias_trat(tipos_lista, tipo_nota)
+    tipos_com_outros = tipos_filtrados + ["Outros"]
     cols_tipo = st.columns(min(len(tipos_com_outros), 4))
     for i, op in enumerate(tipos_com_outros):
         with cols_tipo[i % len(cols_tipo)]:
