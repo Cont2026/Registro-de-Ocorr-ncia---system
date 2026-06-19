@@ -40,6 +40,10 @@ def carregar_tipos_nota():
     if TIPO_FECHAMENTO in tipos:
         tipos.remove(TIPO_FECHAMENTO)
         tipos.insert(0, TIPO_FECHAMENTO)
+    # Coloca "Folha de Pagamento" por último
+    if "Folha de Pagamento" in tipos:
+        tipos.remove("Folha de Pagamento")
+        tipos.append("Folha de Pagamento")
     return tipos
 
 @st.cache_data(ttl=300)
