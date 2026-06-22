@@ -182,13 +182,20 @@ def exibir_chat(protocolo, setor_chamado):
         st.markdown("<div style='background:#f9f9f9;border-radius:10px;padding:16px;text-align:center;color:#999;font-size:13px;'>Nenhuma mensagem ainda.</div>", unsafe_allow_html=True)
     else:
         import base64
+        usuario_atual = st.session_state.get("usuario")
         for idx, (autor, perfil, mensagem, enviado_em, anexo_nome, anexo_dados) in enumerate(mensagens):
-            is_cont = perfil == "contabilidade"
-            alinha = "flex-end" if is_cont else "flex-start"
-            bg = "#041747" if is_cont else "#F0F4FF"
-            cor_txt = "white" if is_cont else "#041747"
-            cor_meta = "rgba(255,255,255,0.7)" if is_cont else "#666"
-            border_r = "14px 14px 4px 14px" if is_cont else "14px 14px 14px 4px"
+            is_mine = (autor == usuario_atual)
+            alinha = "flex-end" if is_mine else "flex-start"
+            if is_mine:
+                bg = "#041747" if perfil == "contabilidade" else "#1d4ed8"
+                cor_txt = "white"
+                cor_meta = "rgba(255,255,255,0.7)"
+                border_r = "14px 14px 4px 14px"
+            else:
+                bg = "#F0F4FF"
+                cor_txt = "#041747"
+                cor_meta = "#666"
+                border_r = "14px 14px 14px 4px"
             txt_html = f"<p style='font-size:13px;margin:0;'>{mensagem}</p>" if mensagem else ""
             img_html = ""
             if anexo_dados and _eh_imagem(anexo_nome):
