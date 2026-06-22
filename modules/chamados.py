@@ -530,12 +530,14 @@ def tela_novo_chamado(preview=False, setor_preview=None):
             st.error(msg)
             return
 
+        import base64
         arquivo_nome = None
+        anexo_bytes = None
+        anexo_dados = None
         if arquivo:
-            os.makedirs("uploads", exist_ok=True)
-            arquivo_nome = f"{datetime.now(BRASILIA).strftime('%Y%m%d%H%M%S')}_{arquivo.name}"
-            with open(f"uploads/{arquivo_nome}", "wb") as f:
-                f.write(arquivo.getbuffer())
+            arquivo_nome = arquivo.name
+            anexo_bytes = arquivo.getvalue()
+            anexo_dados = base64.b64encode(anexo_bytes).decode("utf-8")
 
         try:
             valor_float = converter_valor(valor)
@@ -549,14 +551,14 @@ def tela_novo_chamado(preview=False, setor_preview=None):
 
         run_query("""INSERT INTO chamados (protocolo,setor,empresa,tipo_inconsistencia,prioridade,nf_retorna,
             solicitante,nome_parceiro,numero_nota,tipo_nota,data_entrada,data_saida,data_negociacao,
-            valor,observacao,arquivo_nome,status,aberto_em,financeiro_baixado,num_unico_financeiro,num_unico_nota)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            valor,observacao,arquivo_nome,status,aberto_em,financeiro_baixado,num_unico_financeiro,num_unico_nota,anexo_dados)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (protocolo, st.session_state.setor, empresa, tipo_final, prioridade, nf_retorna,
              solicitante.strip(), nome_parceiro.strip(), numero_nota.strip(), tipo_nota,
              data_entrada or None, None, data_negociacao or None,
              valor_float, observacao.strip(), arquivo_nome, "Aberto",
              datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), fin_baixado,
-             nu_financeiro.strip() or None, nu_nota.strip() or None))
+             nu_financeiro.strip() or None, nu_nota.strip() or None, anexo_dados))
 
         # Salva setores em cópia e notifica
         if copia_sel:
@@ -572,9 +574,10 @@ def tela_novo_chamado(preview=False, setor_preview=None):
         try:
             email_cont = buscar_email_contabilidade()
             if email_cont:
+                anexos = [(arquivo_nome, anexo_bytes)] if anexo_bytes else None
                 email_novo_chamado(email_cont, protocolo, st.session_state.setor,
                     tipo_final, prioridade, nome_parceiro.strip(), numero_nota.strip(), solicitante.strip(),
-                    nu_financeiro=nu_financeiro.strip(), nu_nota=nu_nota.strip())
+                    anexos=anexos, nu_financeiro=nu_financeiro.strip(), nu_nota=nu_nota.strip())
         except:
             pass
 
