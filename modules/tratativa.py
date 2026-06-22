@@ -31,16 +31,35 @@ def filtrar_inconsistencias_trat(tipos_lista, tipo_mov):
     return [inc for inc in tipos_lista if (inc in vinc_do_tipo) or (inc not in com_vinculo)]
 
 def _valor_float(v):
-    v = (v or "").strip()
+    v = (v or "").strip() if isinstance(v, str) else v
     if not v:
         return None
     try:
-        return float(v.replace(".", "").replace(",", "."))
+        return float(str(v).replace(".", "").replace(",", "."))
     except:
         try:
             return float(v)
         except:
             return None
+
+def fmt_data(valor, com_hora=True):
+    """Formata data/datetime para o padrão brasileiro dd/mm/aaaa."""
+    if valor is None or valor == "":
+        return "—"
+    if hasattr(valor, "strftime"):
+        try:
+            tem_hora = getattr(valor, "hour", 0) or getattr(valor, "minute", 0)
+            return valor.strftime("%d/%m/%Y %H:%M") if (com_hora and tem_hora) else valor.strftime("%d/%m/%Y")
+        except:
+            pass
+    s = str(valor).strip()
+    for fmt_in, com_h in [("%Y-%m-%d %H:%M:%S", True), ("%Y-%m-%d %H:%M", True), ("%Y-%m-%d", False)]:
+        try:
+            d = datetime.strptime(s, fmt_in)
+            return d.strftime("%d/%m/%Y %H:%M") if (com_h and com_hora) else d.strftime("%d/%m/%Y")
+        except:
+            continue
+    return s
 
 def gerar_protocolo():
     total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
@@ -372,6 +391,6 @@ def _lista_enviados():
                 <span style='font-size:12px;color:{cor};font-weight:600;'>{status}</span>
             </div>
             <p style='font-size:12px;color:#666;margin:4px 0 0;'>
-            Empresa: {emp or "—"} · Tipo: {tipo_i or "—"} · {criado_em}</p>
+            Empresa: {emp or "—"} · Tipo: {tipo_i or "—"} · {fmt_data(criado_em)}</p>
         </div>
         """, unsafe_allow_html=True)
