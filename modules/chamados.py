@@ -303,7 +303,7 @@ def registrar_fechamento(parcial, observacao="", arquivos=None, atrasos=""):
         (protocolo, st.session_state.setor, "", tipo_final, "Normal", "",
          st.session_state.usuario, "", "", TIPO_FECHAMENTO,
          None, None, None,
-         None, (observacao or "").strip(), anexo_nome, "Aberto",
+         0, (observacao or "").strip(), anexo_nome, "Aberto",
          datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), "", anexo_dados,
          (atrasos or "").strip() or None))
 
@@ -332,7 +332,7 @@ def registrar_folha(empresa, fin_baixado, solicitante, observacao, arquivos=None
         (protocolo, st.session_state.setor, empresa, TIPO_FOLHA, "Normal", "",
          solicitante, "", "", TIPO_FOLHA,
          None, None, None,
-         None, observacao, anexo_nome, "Aberto",
+         0, observacao, anexo_nome, "Aberto",
          datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), fin_baixado, anexo_dados))
 
     try:
