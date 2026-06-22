@@ -611,12 +611,14 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
 
         # Observação e anexo (se houver)
         det = run_query("""SELECT observacao, arquivo_nome, anexo_dados, num_unico_financeiro, num_unico_nota,
-            atrasos_entregaveis, data_entrada, data_negociacao, nf_retorna, tipo_nota, valor
+            atrasos_entregaveis, data_entrada, data_negociacao, nf_retorna, tipo_nota, valor, atendente
             FROM chamados WHERE protocolo=%s""", (protocolo,), fetch=True)
         if det:
             (obs_txt, arq_nome, arq_dados, nu_fin, nu_nt, atrasos_txt,
-             data_ent, data_neg, nf_ret, tipo_mov, valor_c) = det[0]
+             data_ent, data_neg, nf_ret, tipo_mov, valor_c, atendente_c) = det[0]
 
+            if atendente_c:
+                st.markdown(f"**🙋 Atendente da solicitação:** {atendente_c}")
             if tipo_mov:
                 st.markdown(f"**🗂️ Tipo de Movimentação:** {tipo_mov}")
             data_ref = data_ent or data_neg
@@ -653,13 +655,20 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
         # Atualizar status (somente contabilidade)
         if eh_contabilidade:
             st.markdown("---")
-            novo_status = st.selectbox("Atualizar status", ["Aberto","Em andamento","Resolvido","Cancelado"],
-                index=["Aberto","Em andamento","Resolvido","Cancelado"].index(status), key=f"s_{protocolo}")
+            cs1, cs2 = st.columns(2)
+            with cs1:
+                novo_status = st.selectbox("Atualizar status", ["Aberto","Em andamento","Resolvido","Cancelado"],
+                    index=["Aberto","Em andamento","Resolvido","Cancelado"].index(status), key=f"s_{protocolo}")
+            with cs2:
+                atendente = st.text_input("🙋 Atendente da solicitação (seu nome)", key=f"atend_{protocolo}")
             if st.button("💾 Salvar status", key=f"b_{protocolo}"):
+                if not atendente.strip():
+                    st.warning("⚠️ Informe o nome do atendente antes de salvar.")
+                    return
                 agora = datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S")
-                run_query("""UPDATE chamados SET status=%s, atendido_em=COALESCE(atendido_em,%s),
+                run_query("""UPDATE chamados SET status=%s, atendente=%s, atendido_em=COALESCE(atendido_em,%s),
                     resolvido_em=CASE WHEN %s='Resolvido' THEN %s ELSE resolvido_em END WHERE protocolo=%s""",
-                    (novo_status, agora, novo_status, agora, protocolo))
+                    (novo_status, atendente.strip(), agora, novo_status, agora, protocolo))
                 try:
                     destinos = emails_interessados(protocolo, setor)
                     if novo_status == "Resolvido":
