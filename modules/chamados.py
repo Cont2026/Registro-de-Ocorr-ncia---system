@@ -145,6 +145,28 @@ def _eh_imagem(nome):
     n = (nome or "").lower()
     return n.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))
 
+def fmt_data(valor, com_hora=True):
+    """Formata data/datetime para o padrão brasileiro dd/mm/aaaa (com hora se houver)."""
+    if valor is None or valor == "":
+        return "—"
+    if hasattr(valor, "strftime"):
+        try:
+            tem_hora = getattr(valor, "hour", 0) or getattr(valor, "minute", 0) or getattr(valor, "second", 0)
+            return valor.strftime("%d/%m/%Y %H:%M") if (com_hora and tem_hora) else valor.strftime("%d/%m/%Y")
+        except:
+            pass
+    s = str(valor).strip()
+    # formatos comuns vindos do banco como texto
+    for fmt_in, com_h in [("%Y-%m-%d %H:%M:%S", True), ("%Y-%m-%d %H:%M", True), ("%Y-%m-%d", False)]:
+        try:
+            d = datetime.strptime(s, fmt_in)
+            if com_h and com_hora:
+                return d.strftime("%d/%m/%Y %H:%M")
+            return d.strftime("%d/%m/%Y")
+        except:
+            continue
+    return s
+
 def _fmt_valor(v):
     if v is None or v == "":
         return None
@@ -180,7 +202,7 @@ def exibir_chat(protocolo, setor_chamado):
                 <div style='max-width:75%;background:{bg};color:{cor_txt};border-radius:{border_r};padding:10px 14px;box-shadow:0 1px 4px rgba(0,0,0,0.08);'>
                     <p style='font-size:11px;font-weight:700;margin:0 0 4px;color:{cor_meta};'>{autor}</p>
                     {txt_html}{img_html}{arq_html}
-                    <p style='font-size:10px;margin:6px 0 0;color:{cor_meta};text-align:right;'>{enviado_em}</p>
+                    <p style='font-size:10px;margin:6px 0 0;color:{cor_meta};text-align:right;'>{fmt_data(enviado_em)}</p>
                 </div>
             </div>""", unsafe_allow_html=True)
             if anexo_dados and not _eh_imagem(anexo_nome):
@@ -603,7 +625,9 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
         c3.markdown(f"**Prioridade:** {prioridade}")
         c4.markdown(f"**Solicitante:** {solicitante or '—'}")
         c1.markdown(f"**Fin. Baixado:** {fin_baixado or '—'}")
-        st.markdown(f"**Aberto em:** {aberto_em}")
+        c2.markdown(f"**👤 Parceiro:** {parceiro or '—'}")
+        c3.markdown(f"**📄 Número da Nota:** {nf or '—'}")
+        st.markdown(f"**Aberto em:** {fmt_data(aberto_em)}")
 
         copias = carregar_copias(protocolo)
         if copias:
@@ -624,7 +648,7 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
             data_ref = data_ent or data_neg
             if data_ref:
                 rotulo_data = "📥 Data da Nota" if data_ent else "🤝 Data de Negociação"
-                st.markdown(f"**{rotulo_data}:** {data_ref}")
+                st.markdown(f"**{rotulo_data}:** {fmt_data(data_ref, com_hora=False)}")
             if nf_ret:
                 st.markdown(f"**🔄 NF retornará ao sistema:** {nf_ret}")
             valor_fmt = _fmt_valor(valor_c)
