@@ -4,6 +4,7 @@ from database.connection import run_query
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from modules.email_service import enviar_email, email_novo_chamado, email_setor_em_copia
+from modules.chamados import empacotar_anexos, desempacotar_anexos, anexos_para_email
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
 TIPO_FOLHA = "Folha de Pagamento"
@@ -73,14 +74,12 @@ def salvar_copia(protocolo, setor):
 
 def criar_chamado_tratativa(setor_destino, empresa, tipo_inconsistencia, tipo_nota,
                             nome_parceiro, numero_nota, valor, observacao,
-                            nu_financeiro, nu_nota, anexo_nome, anexo_bytes, solicitante,
+                            nu_financeiro, nu_nota, arquivos, solicitante,
                             prioridade="Normal", nf_retorna="", financeiro_baixado="",
                             data_entrada=None, data_negociacao=None):
     """Cria o chamado direto no setor responsavel, ja em 'Em andamento' (aberto pela Contabilidade)."""
     protocolo = gerar_protocolo()
-    anexo_dados = None
-    if anexo_bytes:
-        anexo_dados = base64.b64encode(anexo_bytes).decode("utf-8")
+    anexo_dados, anexo_nome = empacotar_anexos(arquivos)
 
     run_query("""INSERT INTO chamados (protocolo,setor,empresa,tipo_inconsistencia,prioridade,nf_retorna,
         solicitante,nome_parceiro,numero_nota,tipo_nota,data_entrada,data_saida,data_negociacao,
@@ -176,7 +175,7 @@ def tela_tratativa():
         empresa_f = st.session_state.get("trat_folha_emp", None)
 
         st.markdown("---")
-        arq_f = st.file_uploader("📎 Anexo *", type=["pdf","png","jpg","jpeg","xlsx","xml","docx"], key="trat_folha_arq")
+        arq_f = st.file_uploader("📎 Anexos *", type=["pdf","png","jpg","jpeg","xlsx","xml","docx"], accept_multiple_files=True, key="trat_folha_arq")
         obs_f = st.text_area("📝 Observacao *", placeholder="Descreva a solicitação...", key="trat_folha_obs")
 
         st.markdown("---")
@@ -184,21 +183,21 @@ def tela_tratativa():
             erros = []
             if not setor_dados: erros.append("Setor responsavel")
             if not empresa_f: erros.append("Empresa")
-            if arq_f is None: erros.append("Anexo")
+            if not arq_f: erros.append("Anexo")
             if not obs_f.strip(): erros.append("Observacao")
             if erros:
                 st.error(f"Preencha: {', '.join(erros)}")
                 return
             setor_nome = setor_dados[0]
             email_setor = setor_dados[1]
-            anexo_bytes = arq_f.getvalue()
-            anexo_nome = arq_f.name
             protocolo = criar_chamado_tratativa(setor_nome, empresa_f, TIPO_FOLHA, TIPO_FOLHA,
-                "", "", "", obs_f.strip(), "", "", anexo_nome, anexo_bytes, st.session_state.usuario)
+                "", "", "", obs_f.strip(), "", "", arq_f, st.session_state.usuario)
             try:
                 if email_setor:
+                    _dados, _nomes = empacotar_anexos(arq_f)
                     email_novo_chamado(email_setor, protocolo, setor_nome, TIPO_FOLHA, "Normal",
-                        "", "", st.session_state.usuario, anexos=[(anexo_nome, anexo_bytes)])
+                        "", "", st.session_state.usuario,
+                        anexos=anexos_para_email(desempacotar_anexos(_dados, _nomes)))
             except:
                 pass
             for k in ["trat_tipo_nota","trat_folha_emp","trat_folha_obs","trat_folha_arq"]:
@@ -301,7 +300,7 @@ def tela_tratativa():
             nu_nota = st.text_input("🔢 NU Nota (opcional)")
         copia_sel = st.multiselect("👥 Setores em cópia (opcional)", nomes_copia,
             help="Esses setores recebem aviso do chamado em cópia.")
-        arquivo = st.file_uploader("📎 Anexo (opcional)", type=["pdf","png","jpg","jpeg","xlsx","xml","docx"])
+        arquivo = st.file_uploader("📎 Anexos (opcional)", type=["pdf","png","jpg","jpeg","xlsx","xml","docx","csv","txt"], accept_multiple_files=True)
         observacao = st.text_area("📝 Observacao para o setor *",
             placeholder="Descreva a inconsistencia identificada e o que o setor deve fazer...")
         enviar = st.form_submit_button("📨 Abrir Chamado para o Setor", use_container_width=True)
@@ -329,20 +328,19 @@ def tela_tratativa():
         setor_nome = setor_dados[0]
         email_setor = setor_dados[1]
         tipo_final = f"Outros: {tipo_outros_desc.strip()}" if tipo == "Outros" else (tipo or "")
-        anexo_bytes = arquivo.getvalue() if arquivo is not None else None
-        anexo_nome = arquivo.name if arquivo is not None else None
 
         protocolo = criar_chamado_tratativa(setor_nome, empresa, tipo_final, tipo_nota,
             nome_parceiro, numero_nota, valor, observacao,
-            nu_financeiro, nu_nota, anexo_nome, anexo_bytes, solicitante.strip(),
+            nu_financeiro, nu_nota, arquivo, solicitante.strip(),
             prioridade=prioridade, nf_retorna=nf_retorna, financeiro_baixado=fin_baixado,
             data_entrada=data_ent or None, data_negociacao=data_neg or None)
 
         try:
             if email_setor:
-                anexos = [(anexo_nome, anexo_bytes)] if anexo_bytes else None
+                _dados, _nomes = empacotar_anexos(arquivo)
                 email_novo_chamado(email_setor, protocolo, setor_nome, tipo_final, prioridade,
-                    nome_parceiro.strip(), numero_nota.strip(), solicitante.strip(), anexos=anexos,
+                    nome_parceiro.strip(), numero_nota.strip(), solicitante.strip(),
+                    anexos=anexos_para_email(desempacotar_anexos(_dados, _nomes)),
                     nu_financeiro=nu_financeiro.strip(), nu_nota=nu_nota.strip())
         except:
             pass
