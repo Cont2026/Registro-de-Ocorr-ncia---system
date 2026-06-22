@@ -382,6 +382,10 @@ def tela_dashboard():
                 total=("tipo", "size"),
                 ultima=("enviado_em", "max")
             ).reset_index().sort_values(["total", "ultima"], ascending=[False, False])
+            try:
+                cons["ultima"] = pd.to_datetime(cons["ultima"]).dt.strftime("%d/%m/%Y %H:%M")
+            except:
+                pass
             df_notif = cons.rename(columns={
                 "protocolo": "Protocolo",
                 "total": "Total de Notificações",
@@ -421,6 +425,10 @@ def tela_dashboard():
             .rename(columns={"protocolo": "Protocolo", "total": "Total de Notificações", "ultima": "Última Notificação"})
             .sort_values("Total de Notificações", ascending=False)
         )
+        try:
+            df_notif_total["Última Notificação"] = pd.to_datetime(df_notif_total["Última Notificação"]).dt.strftime("%d/%m/%Y %H:%M")
+        except:
+            pass
         piv = dft.pivot_table(index="protocolo", columns="tipo_label",
                               values="enviado_em", aggfunc="count", fill_value=0).reset_index()
         piv = piv.rename(columns={"protocolo": "Protocolo"})
