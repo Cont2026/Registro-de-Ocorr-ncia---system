@@ -1,6 +1,8 @@
 import streamlit as st
 import os
 import calendar
+import json
+import base64
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from database.connection import run_query
@@ -11,6 +13,48 @@ BRASILIA = ZoneInfo("America/Sao_Paulo")
 
 TIPO_FECHAMENTO = "INFORMAR ENTREGÁVEIS"
 TIPO_FOLHA = "Folha de Pagamento"
+
+def empacotar_anexos(arquivos):
+    """Recebe 1 ou vários arquivos enviados e devolve (json_dados, nomes) para salvar no banco."""
+    if not arquivos:
+        return None, None
+    if not isinstance(arquivos, list):
+        arquivos = [arquivos]
+    lista, nomes = [], []
+    for a in arquivos:
+        if a is None:
+            continue
+        try:
+            b64 = base64.b64encode(a.getvalue()).decode("utf-8")
+            lista.append({"nome": a.name, "dados": b64})
+            nomes.append(a.name)
+        except:
+            pass
+    if not lista:
+        return None, None
+    return json.dumps(lista), ", ".join(nomes)
+
+def desempacotar_anexos(arq_dados, arq_nome=None):
+    """Devolve lista de {nome, dados(base64)}. Lida com formato antigo (1 arquivo só)."""
+    if not arq_dados:
+        return []
+    s = str(arq_dados).strip()
+    if s.startswith("["):
+        try:
+            return [x for x in json.loads(s) if x.get("dados")]
+        except:
+            return []
+    return [{"nome": arq_nome or "anexo", "dados": arq_dados}]
+
+def anexos_para_email(lista):
+    """Converte lista de {nome,dados} em [(nome, bytes)] para o e-mail."""
+    out = []
+    for it in lista:
+        try:
+            out.append((it.get("nome") or "anexo", base64.b64decode(it.get("dados"))))
+        except:
+            pass
+    return out or None
 
 def verificar_bloqueio(data_nota):
     if not data_nota: return False, ""
@@ -181,7 +225,6 @@ def exibir_chat(protocolo, setor_chamado):
     if not mensagens:
         st.markdown("<div style='background:#f9f9f9;border-radius:10px;padding:16px;text-align:center;color:#999;font-size:13px;'>Nenhuma mensagem ainda.</div>", unsafe_allow_html=True)
     else:
-        import base64
         usuario_atual = st.session_state.get("usuario")
         for idx, (autor, perfil, mensagem, enviado_em, anexo_nome, anexo_dados) in enumerate(mensagens):
             is_mine = (autor == usuario_atual)
@@ -197,45 +240,43 @@ def exibir_chat(protocolo, setor_chamado):
                 cor_meta = "#666"
                 border_r = "14px 14px 14px 4px"
             txt_html = f"<p style='font-size:13px;margin:0;'>{mensagem}</p>" if mensagem else ""
-            img_html = ""
-            if anexo_dados and _eh_imagem(anexo_nome):
-                mime = _mime_imagem(anexo_nome)
-                img_html = f"<img src='data:{mime};base64,{anexo_dados}' style='max-width:100%;border-radius:8px;margin-top:8px;display:block;'/>"
-            arq_html = ""
-            if anexo_dados and not _eh_imagem(anexo_nome):
-                arq_html = f"<p style='font-size:12px;margin:8px 0 0;'>📎 {anexo_nome or 'anexo'}</p>"
+            anexos_msg = desempacotar_anexos(anexo_dados, anexo_nome)
+            midia_html = ""
+            nao_imagens = []
+            for an in anexos_msg:
+                if _eh_imagem(an.get("nome")):
+                    mime = _mime_imagem(an.get("nome"))
+                    midia_html += f"<img src='data:{mime};base64,{an.get('dados')}' style='max-width:100%;border-radius:8px;margin-top:8px;display:block;'/>"
+                else:
+                    midia_html += f"<p style='font-size:12px;margin:8px 0 0;'>📎 {an.get('nome') or 'anexo'}</p>"
+                    nao_imagens.append(an)
             st.markdown(f"""
             <div style='display:flex;justify-content:{alinha};margin-bottom:10px;'>
                 <div style='max-width:75%;background:{bg};color:{cor_txt};border-radius:{border_r};padding:10px 14px;box-shadow:0 1px 4px rgba(0,0,0,0.08);'>
                     <p style='font-size:11px;font-weight:700;margin:0 0 4px;color:{cor_meta};'>{autor}</p>
-                    {txt_html}{img_html}{arq_html}
+                    {txt_html}{midia_html}
                     <p style='font-size:10px;margin:6px 0 0;color:{cor_meta};text-align:right;'>{fmt_data(enviado_em)}</p>
                 </div>
             </div>""", unsafe_allow_html=True)
-            if anexo_dados and not _eh_imagem(anexo_nome):
+            for j, an in enumerate(nao_imagens):
                 try:
-                    st.download_button(f"📎 Baixar {anexo_nome or 'anexo'}",
-                        data=base64.b64decode(anexo_dados),
-                        file_name=anexo_nome or "anexo", key=f"chatdl_{protocolo}_{idx}")
+                    st.download_button(f"📎 Baixar {an.get('nome') or 'anexo'}",
+                        data=base64.b64decode(an.get("dados")),
+                        file_name=an.get("nome") or "anexo", key=f"chatdl_{protocolo}_{idx}_{j}")
                 except:
                     pass
 
     st.markdown("<br>", unsafe_allow_html=True)
     with st.form(key=f"chat_{protocolo}", clear_on_submit=True):
         nova_msg = st.text_area("Nova mensagem", placeholder="Digite sua mensagem...", height=80, label_visibility="collapsed")
-        img = st.file_uploader("📎 Anexar arquivo (opcional)", type=["png","jpg","jpeg","gif","webp","pdf","xlsx","xls","xml","docx","csv","txt"], key=f"chat_img_{protocolo}")
+        img = st.file_uploader("📎 Anexar arquivos (opcional)", type=["png","jpg","jpeg","gif","webp","pdf","xlsx","xls","xml","docx","csv","txt"], accept_multiple_files=True, key=f"chat_img_{protocolo}")
         if st.form_submit_button("📨 Enviar", use_container_width=True):
             tem_texto = bool(nova_msg.strip())
-            tem_img = img is not None
+            tem_img = bool(img)
             if not tem_texto and not tem_img:
                 st.warning("Digite uma mensagem ou anexe um arquivo antes de enviar.")
             else:
-                anexo_nome = None
-                anexo_dados = None
-                if tem_img:
-                    import base64
-                    anexo_nome = img.name
-                    anexo_dados = base64.b64encode(img.getvalue()).decode("utf-8")
+                anexo_dados, anexo_nome = empacotar_anexos(img) if tem_img else (None, None)
                 enviar_mensagem_db(protocolo, st.session_state.usuario, st.session_state.perfil,
                                    nova_msg.strip(), anexo_nome, anexo_dados)
                 try:
@@ -248,15 +289,12 @@ def exibir_chat(protocolo, setor_chamado):
                 st.rerun()
 
 
-def registrar_fechamento(parcial, observacao="", anexo_nome=None, anexo_bytes=None, atrasos=""):
+def registrar_fechamento(parcial, observacao="", arquivos=None, atrasos=""):
     tipo_final = f"{TIPO_FECHAMENTO} - {parcial}"
     total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
     protocolo = f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-{str(total+1).zfill(4)}"
 
-    anexo_dados = None
-    if anexo_bytes:
-        import base64
-        anexo_dados = base64.b64encode(anexo_bytes).decode("utf-8")
+    anexo_dados, anexo_nome = empacotar_anexos(arquivos)
 
     run_query("""INSERT INTO chamados (protocolo,setor,empresa,tipo_inconsistencia,prioridade,nf_retorna,
         solicitante,nome_parceiro,numero_nota,tipo_nota,data_entrada,data_saida,data_negociacao,
@@ -272,7 +310,7 @@ def registrar_fechamento(parcial, observacao="", anexo_nome=None, anexo_bytes=No
     try:
         email_cont = buscar_email_contabilidade()
         if email_cont:
-            anexos = [(anexo_nome, anexo_bytes)] if anexo_bytes else None
+            anexos = anexos_para_email(desempacotar_anexos(anexo_dados, anexo_nome))
             email_novo_chamado(email_cont, protocolo, st.session_state.setor,
                 tipo_final, "Normal", "", "", st.session_state.usuario, anexos=anexos,
                 atrasos=(atrasos or "").strip())
@@ -281,14 +319,11 @@ def registrar_fechamento(parcial, observacao="", anexo_nome=None, anexo_bytes=No
 
     return protocolo
 
-def registrar_folha(empresa, fin_baixado, solicitante, observacao, anexo_nome, anexo_bytes):
+def registrar_folha(empresa, fin_baixado, solicitante, observacao, arquivos=None):
     total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
     protocolo = f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-{str(total+1).zfill(4)}"
 
-    anexo_dados = None
-    if anexo_bytes:
-        import base64
-        anexo_dados = base64.b64encode(anexo_bytes).decode("utf-8")
+    anexo_dados, anexo_nome = empacotar_anexos(arquivos)
 
     run_query("""INSERT INTO chamados (protocolo,setor,empresa,tipo_inconsistencia,prioridade,nf_retorna,
         solicitante,nome_parceiro,numero_nota,tipo_nota,data_entrada,data_saida,data_negociacao,
@@ -303,7 +338,7 @@ def registrar_folha(empresa, fin_baixado, solicitante, observacao, anexo_nome, a
     try:
         email_cont = buscar_email_contabilidade()
         if email_cont:
-            anexos = [(anexo_nome, anexo_bytes)] if anexo_bytes else None
+            anexos = anexos_para_email(desempacotar_anexos(anexo_dados, anexo_nome))
             email_novo_chamado(email_cont, protocolo, st.session_state.setor,
                 TIPO_FOLHA, "Normal", "", "", solicitante, anexos=anexos)
     except:
@@ -359,8 +394,8 @@ def tela_novo_chamado(preview=False, setor_preview=None):
         st.markdown("---")
         obs_fech = st.text_area("📝 Observação (opcional)", placeholder="Informações adicionais sobre a entrega...", key="fech_obs")
         atrasos_fech = st.text_area("⏰ Atrasos de entregáveis (opcional)", placeholder="Descreva eventuais atrasos de entregáveis...", key="fech_atrasos")
-        arq_fech = st.file_uploader("📎 Anexo de documentos (opcional)",
-            type=["pdf","png","jpg","jpeg","xlsx","xml","docx"], key="fech_arquivo")
+        arq_fech = st.file_uploader("📎 Anexar documentos (opcional)",
+            type=["pdf","png","jpg","jpeg","xlsx","xml","docx"], accept_multiple_files=True, key="fech_arquivo")
 
         st.markdown("---")
         if st.button("📨 Enviar Chamado", use_container_width=True, key="enviar_fechamento"):
@@ -370,12 +405,7 @@ def tela_novo_chamado(preview=False, setor_preview=None):
             if not parcial:
                 st.error("⚠️ Selecione o fechamento parcial.")
                 return
-            anexo_nome = None
-            anexo_bytes = None
-            if arq_fech is not None:
-                anexo_nome = arq_fech.name
-                anexo_bytes = arq_fech.getvalue()
-            protocolo = registrar_fechamento(parcial, obs_fech, anexo_nome, anexo_bytes, atrasos_fech)
+            protocolo = registrar_fechamento(parcial, obs_fech, arq_fech, atrasos_fech)
             for k in ["sel_tipo_nota", "sel_parcial", "fech_obs", "fech_atrasos", "fech_arquivo"]:
                 st.session_state.pop(k, None)
             st.cache_data.clear()
@@ -412,7 +442,7 @@ def tela_novo_chamado(preview=False, setor_preview=None):
 
         st.markdown("---")
         solicitante_f = st.text_input("👤 Nome do Solicitante *", key="folha_solic")
-        arq_folha = st.file_uploader("📎 Anexo *", type=["pdf","png","jpg","jpeg","xlsx","xml","docx"], key="folha_arquivo")
+        arq_folha = st.file_uploader("📎 Anexos *", type=["pdf","png","jpg","jpeg","xlsx","xml","docx"], accept_multiple_files=True, key="folha_arquivo")
         obs_folha = st.text_area("📝 Observação *", placeholder="Descreva a solicitação...", key="folha_obs")
 
         st.markdown("---")
@@ -424,15 +454,13 @@ def tela_novo_chamado(preview=False, setor_preview=None):
             if not empresa_f: erros.append("Empresa")
             if not fin_baixado_f: erros.append("Financeiro Baixado")
             if not solicitante_f.strip(): erros.append("Nome do Solicitante")
-            if arq_folha is None: erros.append("Anexo")
+            if not arq_folha: erros.append("Anexo")
             if not obs_folha.strip(): erros.append("Observação")
             if erros:
                 st.error(f"⚠️ Preencha: {', '.join(erros)}")
                 return
-            anexo_nome = arq_folha.name
-            anexo_bytes = arq_folha.getvalue()
             protocolo = registrar_folha(empresa_f, fin_baixado_f, solicitante_f.strip(),
-                                        obs_folha.strip(), anexo_nome, anexo_bytes)
+                                        obs_folha.strip(), arq_folha)
             for k in ["sel_tipo_nota", "folha_empresa", "folha_fin", "folha_solic", "folha_obs", "folha_arquivo"]:
                 st.session_state.pop(k, None)
             st.cache_data.clear()
@@ -529,7 +557,7 @@ def tela_novo_chamado(preview=False, setor_preview=None):
             nu_nota = st.text_input("🔢 NU Nota (opcional)")
         copia_sel = st.multiselect("👥 Setores em cópia (opcional)", setores_copia_disp,
             help="Os setores marcados recebem e-mail e podem acompanhar e responder este chamado.")
-        arquivo = st.file_uploader("📎 Anexo (opcional)", type=["pdf","png","jpg","xlsx","xml"])
+        arquivo = st.file_uploader("📎 Anexos (opcional)", type=["pdf","png","jpg","jpeg","xlsx","xml","docx","csv","txt"], accept_multiple_files=True)
         observacao = st.text_area("📝 Observação Complementar", placeholder="Informações adicionais...")
         enviar = st.form_submit_button("📨 Enviar Chamado", use_container_width=True)
 
@@ -559,14 +587,7 @@ def tela_novo_chamado(preview=False, setor_preview=None):
             st.error(msg)
             return
 
-        import base64
-        arquivo_nome = None
-        anexo_bytes = None
-        anexo_dados = None
-        if arquivo:
-            arquivo_nome = arquivo.name
-            anexo_bytes = arquivo.getvalue()
-            anexo_dados = base64.b64encode(anexo_bytes).decode("utf-8")
+        anexo_dados, arquivo_nome = empacotar_anexos(arquivo)
 
         try:
             valor_float = converter_valor(valor)
@@ -603,7 +624,7 @@ def tela_novo_chamado(preview=False, setor_preview=None):
         try:
             email_cont = buscar_email_contabilidade()
             if email_cont:
-                anexos = [(arquivo_nome, anexo_bytes)] if anexo_bytes else None
+                anexos = anexos_para_email(desempacotar_anexos(anexo_dados, arquivo_nome))
                 email_novo_chamado(email_cont, protocolo, st.session_state.setor,
                     tipo_final, prioridade, nome_parceiro.strip(), numero_nota.strip(), solicitante.strip(),
                     anexos=anexos, nu_financeiro=nu_financeiro.strip(), nu_nota=nu_nota.strip())
@@ -669,19 +690,19 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
                 st.markdown(f"**⏰ Atrasos de entregáveis:** {atrasos_txt}")
             if obs_txt:
                 st.markdown(f"**📝 Observação:** {obs_txt}")
-            if arq_dados:
-                import base64
-                try:
-                    raw = base64.b64decode(arq_dados)
-                    if _eh_imagem(arq_nome):
-                        st.markdown("**📎 Anexo:**")
-                        st.image(raw, use_container_width=True)
-                    st.download_button("📎 Baixar anexo" + (f" ({arq_nome})" if arq_nome else ""),
-                        data=raw, file_name=arq_nome or f"{protocolo}_anexo", key=f"dl_{protocolo}")
-                except:
-                    st.caption("📎 Anexo disponível, mas não foi possível carregá-lo.")
-            elif arq_nome:
-                st.caption(f"📎 Anexo: {arq_nome}")
+            anexos_ch = desempacotar_anexos(arq_dados, arq_nome)
+            if anexos_ch:
+                st.markdown("**📎 Anexos:**")
+                for i_an, an in enumerate(anexos_ch):
+                    try:
+                        raw = base64.b64decode(an.get("dados"))
+                        if _eh_imagem(an.get("nome")):
+                            st.image(raw, use_container_width=True, caption=an.get("nome"))
+                        st.download_button("📎 Baixar" + (f" ({an.get('nome')})" if an.get("nome") else ""),
+                            data=raw, file_name=an.get("nome") or f"{protocolo}_anexo_{i_an}",
+                            key=f"dl_{protocolo}_{i_an}")
+                    except:
+                        st.caption(f"📎 {an.get('nome') or 'anexo'} (não foi possível carregar)")
 
         # Atualizar status (somente contabilidade)
         if eh_contabilidade:
