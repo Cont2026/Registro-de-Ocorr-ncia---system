@@ -175,7 +175,9 @@ def tela_tratativa():
         empresa_f = st.session_state.get("trat_folha_emp", None)
 
         st.markdown("---")
-        arq_f = st.file_uploader("📎 Anexos *", type=["pdf","png","jpg","jpeg","xlsx","xml","docx"], accept_multiple_files=True, key="trat_folha_arq")
+        copia_f = st.multiselect("👥 Setores em cópia (opcional)", nomes_copia, key="trat_folha_copia",
+            help="Esses setores recebem aviso do chamado em cópia.")
+        arq_f = st.file_uploader("📎 Anexos *", type=["pdf","png","jpg","jpeg","xlsx","xml","docx","zip"], accept_multiple_files=True, key="trat_folha_arq")
         obs_f = st.text_area("📝 Observacao *", placeholder="Descreva a solicitação...", key="trat_folha_obs")
 
         st.markdown("---")
@@ -200,7 +202,15 @@ def tela_tratativa():
                         anexos=anexos_para_email(desempacotar_anexos(_dados, _nomes)))
             except:
                 pass
-            for k in ["trat_tipo_nota","trat_folha_emp","trat_folha_obs","trat_folha_arq"]:
+            for n in copia_f:
+                em = mapa_email.get(n)
+                if em and em != email_setor:
+                    try:
+                        salvar_copia(protocolo, n)
+                        email_setor_em_copia(em, protocolo, n, setor_nome)
+                    except:
+                        pass
+            for k in ["trat_tipo_nota","trat_folha_emp","trat_folha_obs","trat_folha_arq","trat_folha_copia"]:
                 st.session_state.pop(k, None)
             st.cache_data.clear()
             st.success(f"✅ Chamado **{protocolo}** aberto para {setor_nome} (Em andamento).")
@@ -300,7 +310,7 @@ def tela_tratativa():
             nu_nota = st.text_input("🔢 NU Nota (opcional)")
         copia_sel = st.multiselect("👥 Setores em cópia (opcional)", nomes_copia,
             help="Esses setores recebem aviso do chamado em cópia.")
-        arquivo = st.file_uploader("📎 Anexos (opcional)", type=["pdf","png","jpg","jpeg","xlsx","xml","docx","csv","txt"], accept_multiple_files=True)
+        arquivo = st.file_uploader("📎 Anexos (opcional)", type=["pdf","png","jpg","jpeg","xlsx","xml","docx","csv","txt","zip"], accept_multiple_files=True)
         observacao = st.text_area("📝 Observacao para o setor *",
             placeholder="Descreva a inconsistencia identificada e o que o setor deve fazer...")
         enviar = st.form_submit_button("📨 Abrir Chamado para o Setor", use_container_width=True)
