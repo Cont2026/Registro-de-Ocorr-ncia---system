@@ -80,6 +80,9 @@ def criar_chamado_tratativa(setor_destino, empresa, tipo_inconsistencia, tipo_no
     """Cria o chamado direto no setor responsavel, ja em 'Em andamento' (aberto pela Contabilidade)."""
     protocolo = gerar_protocolo()
     anexo_dados, anexo_nome = empacotar_anexos(arquivos)
+    valor_num = _valor_float(valor)
+    if valor_num is None:
+        valor_num = 0
 
     run_query("""INSERT INTO chamados (protocolo,setor,empresa,tipo_inconsistencia,prioridade,nf_retorna,
         solicitante,nome_parceiro,numero_nota,tipo_nota,data_entrada,data_saida,data_negociacao,
@@ -89,7 +92,7 @@ def criar_chamado_tratativa(setor_destino, empresa, tipo_inconsistencia, tipo_no
         (protocolo, setor_destino, empresa or "", tipo_inconsistencia, prioridade or "Normal", nf_retorna or "",
          solicitante, (nome_parceiro or "").strip(), (numero_nota or "").strip(), tipo_nota or "",
          data_entrada or None, None, data_negociacao or None,
-         _valor_float(valor), (observacao or "").strip(), anexo_nome, "Em andamento",
+         valor_num, (observacao or "").strip(), anexo_nome, "Em andamento",
          datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), financeiro_baixado or "", anexo_dados,
          (nu_financeiro or "").strip() or None, (nu_nota or "").strip() or None))
 
