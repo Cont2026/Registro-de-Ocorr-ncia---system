@@ -141,13 +141,26 @@ def _mime_imagem(nome):
     if n.endswith(".webp"): return "image/webp"
     return "image/jpeg"
 
+def _eh_imagem(nome):
+    n = (nome or "").lower()
+    return n.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))
+
+def _fmt_valor(v):
+    if v is None or v == "":
+        return None
+    try:
+        return "R$ " + f"{float(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except:
+        return str(v)
+
 def exibir_chat(protocolo, setor_chamado):
     st.markdown("#### 💬 Acompanhamento")
     mensagens = carregar_mensagens(protocolo)
     if not mensagens:
         st.markdown("<div style='background:#f9f9f9;border-radius:10px;padding:16px;text-align:center;color:#999;font-size:13px;'>Nenhuma mensagem ainda.</div>", unsafe_allow_html=True)
     else:
-        for autor, perfil, mensagem, enviado_em, anexo_nome, anexo_dados in mensagens:
+        import base64
+        for idx, (autor, perfil, mensagem, enviado_em, anexo_nome, anexo_dados) in enumerate(mensagens):
             is_cont = perfil == "contabilidade"
             alinha = "flex-end" if is_cont else "flex-start"
             bg = "#041747" if is_cont else "#F0F4FF"
@@ -156,27 +169,37 @@ def exibir_chat(protocolo, setor_chamado):
             border_r = "14px 14px 4px 14px" if is_cont else "14px 14px 14px 4px"
             txt_html = f"<p style='font-size:13px;margin:0;'>{mensagem}</p>" if mensagem else ""
             img_html = ""
-            if anexo_dados:
+            if anexo_dados and _eh_imagem(anexo_nome):
                 mime = _mime_imagem(anexo_nome)
                 img_html = f"<img src='data:{mime};base64,{anexo_dados}' style='max-width:100%;border-radius:8px;margin-top:8px;display:block;'/>"
+            arq_html = ""
+            if anexo_dados and not _eh_imagem(anexo_nome):
+                arq_html = f"<p style='font-size:12px;margin:8px 0 0;'>📎 {anexo_nome or 'anexo'}</p>"
             st.markdown(f"""
             <div style='display:flex;justify-content:{alinha};margin-bottom:10px;'>
                 <div style='max-width:75%;background:{bg};color:{cor_txt};border-radius:{border_r};padding:10px 14px;box-shadow:0 1px 4px rgba(0,0,0,0.08);'>
                     <p style='font-size:11px;font-weight:700;margin:0 0 4px;color:{cor_meta};'>{autor}</p>
-                    {txt_html}{img_html}
+                    {txt_html}{img_html}{arq_html}
                     <p style='font-size:10px;margin:6px 0 0;color:{cor_meta};text-align:right;'>{enviado_em}</p>
                 </div>
             </div>""", unsafe_allow_html=True)
+            if anexo_dados and not _eh_imagem(anexo_nome):
+                try:
+                    st.download_button(f"📎 Baixar {anexo_nome or 'anexo'}",
+                        data=base64.b64decode(anexo_dados),
+                        file_name=anexo_nome or "anexo", key=f"chatdl_{protocolo}_{idx}")
+                except:
+                    pass
 
     st.markdown("<br>", unsafe_allow_html=True)
     with st.form(key=f"chat_{protocolo}", clear_on_submit=True):
         nova_msg = st.text_area("Nova mensagem", placeholder="Digite sua mensagem...", height=80, label_visibility="collapsed")
-        img = st.file_uploader("🖼️ Anexar imagem (opcional)", type=["png","jpg","jpeg","gif","webp"], key=f"chat_img_{protocolo}")
+        img = st.file_uploader("📎 Anexar arquivo (opcional)", type=["png","jpg","jpeg","gif","webp","pdf","xlsx","xls","xml","docx","csv","txt"], key=f"chat_img_{protocolo}")
         if st.form_submit_button("📨 Enviar", use_container_width=True):
             tem_texto = bool(nova_msg.strip())
             tem_img = img is not None
             if not tem_texto and not tem_img:
-                st.warning("Digite uma mensagem ou anexe uma imagem antes de enviar.")
+                st.warning("Digite uma mensagem ou anexe um arquivo antes de enviar.")
             else:
                 anexo_nome = None
                 anexo_dados = None
@@ -187,7 +210,7 @@ def exibir_chat(protocolo, setor_chamado):
                 enviar_mensagem_db(protocolo, st.session_state.usuario, st.session_state.perfil,
                                    nova_msg.strip(), anexo_nome, anexo_dados)
                 try:
-                    texto_email = nova_msg.strip() if tem_texto else "[imagem anexada]"
+                    texto_email = nova_msg.strip() if tem_texto else "[anexo enviado]"
                     destinos = emails_interessados(protocolo, setor_chamado, st.session_state.get("email"))
                     for email_dest in destinos:
                         email_nova_mensagem(email_dest, protocolo, st.session_state.usuario, texto_email)
@@ -584,10 +607,24 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
             st.markdown(f"**👥 Em cópia:** {', '.join(copias)}")
 
         # Observação e anexo (se houver)
-        det = run_query("SELECT observacao, arquivo_nome, anexo_dados, num_unico_financeiro, num_unico_nota, atrasos_entregaveis FROM chamados WHERE protocolo=%s",
-                        (protocolo,), fetch=True)
+        det = run_query("""SELECT observacao, arquivo_nome, anexo_dados, num_unico_financeiro, num_unico_nota,
+            atrasos_entregaveis, data_entrada, data_negociacao, nf_retorna, tipo_nota, valor
+            FROM chamados WHERE protocolo=%s""", (protocolo,), fetch=True)
         if det:
-            obs_txt, arq_nome, arq_dados, nu_fin, nu_nt, atrasos_txt = det[0]
+            (obs_txt, arq_nome, arq_dados, nu_fin, nu_nt, atrasos_txt,
+             data_ent, data_neg, nf_ret, tipo_mov, valor_c) = det[0]
+
+            if tipo_mov:
+                st.markdown(f"**🗂️ Tipo de Movimentação:** {tipo_mov}")
+            data_ref = data_ent or data_neg
+            if data_ref:
+                rotulo_data = "📥 Data da Nota" if data_ent else "🤝 Data de Negociação"
+                st.markdown(f"**{rotulo_data}:** {data_ref}")
+            if nf_ret:
+                st.markdown(f"**🔄 NF retornará ao sistema:** {nf_ret}")
+            valor_fmt = _fmt_valor(valor_c)
+            if valor_fmt:
+                st.markdown(f"**💰 Valor:** {valor_fmt}")
             if nu_fin:
                 st.markdown(f"**🔢 Número Único Financeiro:** {nu_fin}")
             if nu_nt:
@@ -599,10 +636,12 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
             if arq_dados:
                 import base64
                 try:
+                    raw = base64.b64decode(arq_dados)
+                    if _eh_imagem(arq_nome):
+                        st.markdown("**📎 Anexo:**")
+                        st.image(raw, use_container_width=True)
                     st.download_button("📎 Baixar anexo" + (f" ({arq_nome})" if arq_nome else ""),
-                        data=base64.b64decode(arq_dados),
-                        file_name=arq_nome or f"{protocolo}_anexo",
-                        key=f"dl_{protocolo}")
+                        data=raw, file_name=arq_nome or f"{protocolo}_anexo", key=f"dl_{protocolo}")
                 except:
                     st.caption("📎 Anexo disponível, mas não foi possível carregá-lo.")
             elif arq_nome:
