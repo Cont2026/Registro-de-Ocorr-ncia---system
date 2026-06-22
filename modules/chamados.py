@@ -269,7 +269,7 @@ def exibir_chat(protocolo, setor_chamado):
     st.markdown("<br>", unsafe_allow_html=True)
     with st.form(key=f"chat_{protocolo}", clear_on_submit=True):
         nova_msg = st.text_area("Nova mensagem", placeholder="Digite sua mensagem...", height=80, label_visibility="collapsed")
-        img = st.file_uploader("📎 Anexar arquivos (opcional)", type=["png","jpg","jpeg","gif","webp","pdf","xlsx","xls","xml","docx","csv","txt"], accept_multiple_files=True, key=f"chat_img_{protocolo}")
+        img = st.file_uploader("📎 Anexar arquivos (opcional)", type=["png","jpg","jpeg","gif","webp","pdf","xlsx","xls","xml","docx","csv","txt","zip"], accept_multiple_files=True, key=f"chat_img_{protocolo}")
         if st.form_submit_button("📨 Enviar", use_container_width=True):
             tem_texto = bool(nova_msg.strip())
             tem_img = bool(img)
@@ -395,7 +395,7 @@ def tela_novo_chamado(preview=False, setor_preview=None):
         obs_fech = st.text_area("📝 Observação (opcional)", placeholder="Informações adicionais sobre a entrega...", key="fech_obs")
         atrasos_fech = st.text_area("⏰ Atrasos de entregáveis (opcional)", placeholder="Descreva eventuais atrasos de entregáveis...", key="fech_atrasos")
         arq_fech = st.file_uploader("📎 Anexar documentos (opcional)",
-            type=["pdf","png","jpg","jpeg","xlsx","xml","docx"], accept_multiple_files=True, key="fech_arquivo")
+            type=["pdf","png","jpg","jpeg","xlsx","xml","docx","zip"], accept_multiple_files=True, key="fech_arquivo")
 
         st.markdown("---")
         if st.button("📨 Enviar Chamado", use_container_width=True, key="enviar_fechamento"):
@@ -442,7 +442,9 @@ def tela_novo_chamado(preview=False, setor_preview=None):
 
         st.markdown("---")
         solicitante_f = st.text_input("👤 Nome do Solicitante *", key="folha_solic")
-        arq_folha = st.file_uploader("📎 Anexos *", type=["pdf","png","jpg","jpeg","xlsx","xml","docx"], accept_multiple_files=True, key="folha_arquivo")
+        copia_folha = st.multiselect("👥 Setores em cópia (opcional)",
+            carregar_setores_disponiveis(setor_atual), key="folha_copia")
+        arq_folha = st.file_uploader("📎 Anexos *", type=["pdf","png","jpg","jpeg","xlsx","xml","docx","zip"], accept_multiple_files=True, key="folha_arquivo")
         obs_folha = st.text_area("📝 Observação *", placeholder="Descreva a solicitação...", key="folha_obs")
 
         st.markdown("---")
@@ -461,7 +463,16 @@ def tela_novo_chamado(preview=False, setor_preview=None):
                 return
             protocolo = registrar_folha(empresa_f, fin_baixado_f, solicitante_f.strip(),
                                         obs_folha.strip(), arq_folha)
-            for k in ["sel_tipo_nota", "folha_empresa", "folha_fin", "folha_solic", "folha_obs", "folha_arquivo"]:
+            if copia_folha:
+                salvar_copias(protocolo, copia_folha)
+                for s in copia_folha:
+                    try:
+                        email_s = buscar_email_setor(s)
+                        if email_s:
+                            email_setor_em_copia(email_s, protocolo, s, setor_atual)
+                    except:
+                        pass
+            for k in ["sel_tipo_nota", "folha_empresa", "folha_fin", "folha_solic", "folha_obs", "folha_arquivo", "folha_copia"]:
                 st.session_state.pop(k, None)
             st.cache_data.clear()
             st.success(f"✅ Chamado registrado! Protocolo: **{protocolo}**")
@@ -557,7 +568,7 @@ def tela_novo_chamado(preview=False, setor_preview=None):
             nu_nota = st.text_input("🔢 NU Nota (opcional)")
         copia_sel = st.multiselect("👥 Setores em cópia (opcional)", setores_copia_disp,
             help="Os setores marcados recebem e-mail e podem acompanhar e responder este chamado.")
-        arquivo = st.file_uploader("📎 Anexos (opcional)", type=["pdf","png","jpg","jpeg","xlsx","xml","docx","csv","txt"], accept_multiple_files=True)
+        arquivo = st.file_uploader("📎 Anexos (opcional)", type=["pdf","png","jpg","jpeg","xlsx","xml","docx","csv","txt","zip"], accept_multiple_files=True)
         observacao = st.text_area("📝 Observação Complementar", placeholder="Informações adicionais...")
         enviar = st.form_submit_button("📨 Enviar Chamado", use_container_width=True)
 
