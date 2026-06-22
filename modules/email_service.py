@@ -9,6 +9,10 @@ from database.connection import run_query
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
 
+# Controla a cópia (BCC) para a Contabilidade: 1 por assunto dentro de uma mesma ação,
+# evitando várias cópias quando um protocolo tem vários setores marcados.
+_bcc_recente = {}
+
 def get_url_base():
     try:
         return st.secrets.get("APP_URL", "https://registro-de-ocorr-ncia---system.streamlit.app")
@@ -47,11 +51,19 @@ def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral"
             "content": [{"type": "text/html", "value": corpo_html}]
         }
 
-        # Contabilidade recebe cópia (BCC) de todas as notificações automaticamente,
-        # exceto quando o e-mail já é destinado a ela (evita duplicar).
+        # Contabilidade recebe cópia (BCC) das notificações automaticamente,
+        # mas apenas 1 vez por assunto (evita várias cópias quando há vários setores).
         email_cont = _email_contabilidade()
         if email_cont and email_cont.strip().lower() != (destinatario or "").strip().lower():
-            dados["personalizations"][0]["bcc"] = [{"email": email_cont}]
+            agora = datetime.now(BRASILIA).timestamp()
+            chave = (assunto or "").strip().lower()
+            ultimo = _bcc_recente.get(chave, 0)
+            if agora - ultimo > 60:  # mesma "rodada" de envios: só a 1ª cópia
+                dados["personalizations"][0]["bcc"] = [{"email": email_cont}]
+                _bcc_recente[chave] = agora
+                # limpa entradas antigas para não crescer indefinidamente
+                for k in [k for k, v in _bcc_recente.items() if agora - v > 600]:
+                    _bcc_recente.pop(k, None)
 
         if anexos:
             lista_anexos = []
