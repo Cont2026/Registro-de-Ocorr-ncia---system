@@ -364,6 +364,7 @@ def tela_dashboard():
         st.info("Nenhuma notificação registrada ainda.")
     else:
         dfn = pd.DataFrame(notifs_raw, columns=["protocolo", "tipo", "enviado_em"])
+        dfn = dfn[dfn["tipo"] != "alerta_sla"]
         dfn["protocolo"] = dfn["protocolo"].replace("", None)
         dfn["protocolo"] = dfn["protocolo"].fillna("(sem protocolo)")
 
@@ -418,6 +419,7 @@ def tela_dashboard():
     df_notif_tipo = None
     if notifs_raw:
         dft = pd.DataFrame(notifs_raw, columns=["protocolo", "tipo", "enviado_em"])
+        dft = dft[dft["tipo"] != "alerta_sla"]
         dft["protocolo"] = dft["protocolo"].replace("", None).fillna("(sem protocolo)")
         dft["tipo_label"] = dft["tipo"].map(lambda t: LABELS_NOTIF.get(t, t) if t else "—")
         # 1 por movimentação: identifica o evento (protocolo + tipo + minuto) e remove as cópias
