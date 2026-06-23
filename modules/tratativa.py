@@ -180,17 +180,21 @@ def tela_tratativa():
                     st.rerun()
         parcial = st.session_state.get("trat_fech_parcial", None)
 
-        st.markdown("#### 🏢 Empresa *")
-        emp_fe_sel = st.session_state.get("trat_fech_emp", None)
+        st.markdown("#### 🏢 Empresa * (pode marcar mais de uma)")
+        emps_fe = st.session_state.get("trat_fech_emps", [])
         cols_efe = st.columns(5)
         for i, op in enumerate(["1","2","6","13","14"]):
             with cols_efe[i]:
-                ativo = emp_fe_sel == op
+                ativo = op in emps_fe
                 if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"trat_fech_emp_{i}",
                     use_container_width=True, type="primary" if ativo else "secondary"):
-                    st.session_state["trat_fech_emp"] = op
+                    if ativo:
+                        emps_fe.remove(op)
+                    else:
+                        emps_fe.append(op)
+                    st.session_state["trat_fech_emps"] = emps_fe
                     st.rerun()
-        empresa_fe = st.session_state.get("trat_fech_emp", None)
+        empresa_fe = ", ".join(st.session_state.get("trat_fech_emps", []))
 
         st.markdown("---")
         copia_fe = st.multiselect("👥 Setores em cópia (opcional)", nomes_copia, key="trat_fech_copia",
@@ -231,7 +235,7 @@ def tela_tratativa():
                         email_setor_em_copia(em, protocolo, n, setor_nome)
                     except:
                         pass
-            for k in ["trat_tipo_nota","trat_fech_parcial","trat_fech_obs","trat_fech_atrasos","trat_fech_arq","trat_fech_copia","trat_fech_emp"]:
+            for k in ["trat_tipo_nota","trat_fech_parcial","trat_fech_obs","trat_fech_atrasos","trat_fech_arq","trat_fech_copia","trat_fech_emps"]:
                 st.session_state.pop(k, None)
             st.cache_data.clear()
             st.success(f"✅ Chamado **{protocolo}** aberto para {setor_nome} (Em andamento).")
