@@ -177,6 +177,22 @@ def tela_tratativa():
                     st.rerun()
         empresa_f = st.session_state.get("trat_folha_emp", None)
 
+        st.markdown("#### 📋 Tipo de Inconsistencia *")
+        inc_sel = st.session_state.get("trat_folha_inc", None)
+        incs_f = filtrar_inconsistencias_trat(tipos_lista, TIPO_FOLHA) + ["Outros"]
+        cols_if = st.columns(min(len(incs_f), 4))
+        for i, op in enumerate(incs_f):
+            with cols_if[i % len(cols_if)]:
+                ativo = inc_sel == op
+                if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"trat_folha_inc_{i}",
+                    use_container_width=True, type="primary" if ativo else "secondary"):
+                    st.session_state["trat_folha_inc"] = op
+                    st.rerun()
+        inc_f = st.session_state.get("trat_folha_inc", None)
+        inc_f_outros = ""
+        if inc_f == "Outros":
+            inc_f_outros = st.text_input("Descreva a inconsistencia *", key="trat_folha_inc_outros")
+
         st.markdown("---")
         copia_f = st.multiselect("👥 Setores em cópia (opcional)", nomes_copia, key="trat_folha_copia",
             help="Esses setores recebem aviso do chamado em cópia.")
@@ -188,6 +204,8 @@ def tela_tratativa():
             erros = []
             if not setor_dados: erros.append("Setor responsavel")
             if not empresa_f: erros.append("Empresa")
+            if not inc_f: erros.append("Tipo de Inconsistencia")
+            if inc_f == "Outros" and not inc_f_outros.strip(): erros.append("Descricao da inconsistencia")
             if not arq_f: erros.append("Anexo")
             if not obs_f.strip(): erros.append("Observacao")
             if erros:
@@ -195,7 +213,8 @@ def tela_tratativa():
                 return
             setor_nome = setor_dados[0]
             email_setor = setor_dados[1]
-            protocolo = criar_chamado_tratativa(setor_nome, empresa_f, TIPO_FOLHA, TIPO_FOLHA,
+            inc_final = f"Outros: {inc_f_outros.strip()}" if inc_f == "Outros" else inc_f
+            protocolo = criar_chamado_tratativa(setor_nome, empresa_f, inc_final, TIPO_FOLHA,
                 "", "", "", obs_f.strip(), "", "", arq_f, st.session_state.usuario)
             try:
                 if email_setor:
@@ -213,7 +232,7 @@ def tela_tratativa():
                         email_setor_em_copia(em, protocolo, n, setor_nome)
                     except:
                         pass
-            for k in ["trat_tipo_nota","trat_folha_emp","trat_folha_obs","trat_folha_arq","trat_folha_copia"]:
+            for k in ["trat_tipo_nota","trat_folha_emp","trat_folha_obs","trat_folha_arq","trat_folha_copia","trat_folha_inc","trat_folha_inc_outros"]:
                 st.session_state.pop(k, None)
             st.cache_data.clear()
             st.success(f"✅ Chamado **{protocolo}** aberto para {setor_nome} (Em andamento).")
