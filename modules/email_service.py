@@ -9,6 +9,10 @@ from database.connection import run_query
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
 
+# Domínio usado para montar o "ancestral" da thread (apenas para o cabeçalho de
+# agrupamento; não precisa ser um e-mail real que receba mensagens).
+DOMINIO_THREAD = "grupolle.com.br"
+
 # Controla a cópia (BCC) para a Contabilidade: 1 por assunto dentro de uma mesma ação,
 # evitando várias cópias quando um protocolo tem vários setores marcados.
 _bcc_recente = {}
@@ -18,6 +22,15 @@ def get_url_base():
         return st.secrets.get("APP_URL", "https://registro-de-ocorr-ncia---system.streamlit.app")
     except:
         return "https://registro-de-ocorr-ncia---system.streamlit.app"
+
+def _ref_thread(protocolo):
+    """Identificador fixo e previsível do 'ancestral' da conversa de um protocolo.
+    Todos os e-mails do mesmo protocolo apontam para este id, fazendo o Outlook
+    agrupá-los na mesma thread."""
+    if not protocolo:
+        return None
+    p = str(protocolo).strip().lower()
+    return f"<roc-{p}@{DOMINIO_THREAD}>"
 
 def registrar_notificacao(protocolo, destinatario, assunto, tipo, sucesso):
     try:
@@ -40,7 +53,9 @@ def _email_contabilidade():
 def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral", anexos=None, copiar_contabilidade=True):
     """anexos: lista de tuplas (nome_arquivo, conteudo_bytes).
     copiar_contabilidade: quando False, NÃO coloca a Contabilidade em BCC
-    (usado no e-mail de 'você está em cópia', que é redundante para ela)."""
+    (usado no e-mail de 'você está em cópia', que é redundante para ela).
+    Quando há protocolo, adiciona cabeçalhos de thread (References/In-Reply-To)
+    para que o Outlook agrupe todas as notificações do mesmo protocolo."""
     try:
         api_key = st.secrets["SENDGRID_API_KEY"]
         remetente = st.secrets["REMETENTE_EMAIL"]
@@ -52,6 +67,14 @@ def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral"
             "subject": assunto,
             "content": [{"type": "text/html", "value": corpo_html}]
         }
+
+        # Cabeçalhos de agrupamento por protocolo (thread no Outlook).
+        ref = _ref_thread(protocolo)
+        if ref:
+            dados["headers"] = {
+                "References": ref,
+                "In-Reply-To": ref,
+            }
 
         # Contabilidade recebe cópia (BCC) de todas as notificações automaticamente,
         # mas apenas 1 vez por assunto (evita várias cópias quando há vários setores),
@@ -135,7 +158,7 @@ def tabela_row(label, valor, alt=False):
     </tr>"""
 
 def email_novo_chamado(email_contabilidade, protocolo, setor, tipo, prioridade, parceiro, numero_nota, solicitante, anexos=None, nu_financeiro="", nu_nota="", atrasos=""):
-    assunto = f"ROC — Novo Chamado {protocolo}"
+    assunto = f"{protocolo} — Novo chamado"
     cor_prio = "#ef4444" if prioridade == "Urgente" else "#22c55e"
     linha_nu_fin = tabela_row("Nº Único Financeiro", nu_financeiro) if nu_financeiro else ""
     linha_nu_nota = tabela_row("Nº Único da Nota", nu_nota, True) if nu_nota else ""
@@ -167,7 +190,7 @@ def email_novo_chamado(email_contabilidade, protocolo, setor, tipo, prioridade, 
 def email_atualizacao_chamado(email_setor, protocolo, novo_status, setor="", atendente=""):
     cores = {"Aberto":"#ef4444","Em andamento":"#f59e0b","Resolvido":"#22c55e","Cancelado":"#6b7280"}
     cor = cores.get(novo_status, "#041747")
-    assunto = f"ROC — Chamado {protocolo} atualizado para {novo_status}"
+    assunto = f"{protocolo} — Atualização: {novo_status}"
     linha_atend = tabela_row("Atualizado por", atendente) if atendente else ""
     corpo = f"""
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;padding:20px;border-radius:12px;">
@@ -188,7 +211,7 @@ def email_atualizacao_chamado(email_setor, protocolo, novo_status, setor="", ate
     return enviar_email(email_setor, assunto, corpo, protocolo, "atualizacao_status")
 
 def email_conclusao_chamado(email_contabilidade, email_setor, protocolo, tipo, data_conclusao, atendente=""):
-    assunto = f"ROC — Chamado {protocolo} concluído"
+    assunto = f"{protocolo} — Concluído"
     linha_atend = tabela_row("Concluído por", atendente, True) if atendente else ""
     corpo = f"""
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;padding:20px;border-radius:12px;">
@@ -215,7 +238,7 @@ def email_conclusao_chamado(email_contabilidade, email_setor, protocolo, tipo, d
     return sucesso
 
 def email_nova_mensagem(email_destinatario, protocolo, autor, mensagem):
-    assunto = f"ROC — Nova mensagem no chamado {protocolo}"
+    assunto = f"{protocolo} — Nova mensagem"
     corpo = f"""
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;padding:20px;border-radius:12px;">
         {cabecalho_email()}
@@ -244,7 +267,7 @@ def email_setor_em_copia(email_setor, protocolo, setor, aberto_por=""):
     if email_cont and email_cont.strip().lower() == (email_setor or "").strip().lower():
         return True
 
-    assunto = f"ROC — Você foi incluído no chamado {protocolo}"
+    assunto = f"{protocolo} — Você foi incluído"
     info_aberto = tabela_row("Aberto por", aberto_por, True) if aberto_por else ""
     corpo = f"""
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;padding:20px;border-radius:12px;">
