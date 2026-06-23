@@ -1,29 +1,81 @@
 import psycopg2
+from psycopg2 import pool as pgpool
 import streamlit as st
 
-def get_conn():
-    return psycopg2.connect(
+
+def _params():
+    """Parâmetros de conexão com o Neon (lidos dos secrets do Streamlit)."""
+    return dict(
         host=st.secrets["DB_HOST"],
         dbname=st.secrets["DB_NAME"],
         user=st.secrets["DB_USER"],
         password=st.secrets["DB_PASSWORD"],
-        port=st.secrets["DB_PORT"]
+        port=st.secrets["DB_PORT"],
+        sslmode="require",
+        connect_timeout=10,
+        # Keepalives ajudam a manter a conexão viva contra o tempo de ociosidade do Neon.
+        keepalives=1,
+        keepalives_idle=30,
+        keepalives_interval=10,
+        keepalives_count=5,
     )
 
-def run_query(sql, params=None, fetch=False):
-    conn = get_conn()
-    cur = conn.cursor()
+
+@st.cache_resource
+def get_pool():
+    """Pool de conexões reaproveitadas entre reruns e entre usuários.
+    Fica vivo no processo do Streamlit, evitando abrir uma conexão nova
+    (com handshake SSL) a cada query — principal causa de lentidão."""
+    return pgpool.ThreadedConnectionPool(minconn=1, maxconn=5, **_params())
+
+
+def get_conn():
+    """Compatibilidade: devolve uma conexão avulsa (não usar em código novo;
+    o caminho recomendado é run_query, que usa o pool)."""
+    return psycopg2.connect(**_params())
+
+
+def _executar(sql, params, fetch):
+    """Executa 1 query usando uma conexão emprestada do pool e a devolve no fim."""
+    p = get_pool()
+    conn = p.getconn()
     try:
-        cur.execute(sql, params or ())
-        if fetch:
-            return cur.fetchall()
-        conn.commit()
+        with conn.cursor() as cur:
+            cur.execute(sql, params or ())
+            rows = cur.fetchall() if fetch else None
+        conn.commit()  # encerra a transação (evita "idle in transaction" na conexão reaproveitada)
+        return rows
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
     finally:
-        cur.close()
-        conn.close()
+        try:
+            p.putconn(conn)
+        except Exception:
+            pass
+
+
+def run_query(sql, params=None, fetch=False):
+    """Executa uma query reaproveitando conexões do pool.
+    Se o Neon tiver derrubado as conexões ociosas, recria o pool e tenta 1x mais."""
+    try:
+        return _executar(sql, params, fetch)
+    except (psycopg2.OperationalError, psycopg2.InterfaceError, pgpool.PoolError):
+        # Conexões mortas/ociosas: descarta o pool inteiro e reconstrói.
+        try:
+            get_pool().closeall()
+        except Exception:
+            pass
+        get_pool.clear()
+        return _executar(sql, params, fetch)
+
 
 def init_db():
-    conn = get_conn()
+    # Usa uma conexão própria (fora do pool) para preservar a transação manual.
+    conn = psycopg2.connect(**_params())
     cur = conn.cursor()
     try:
         cur.execute("""CREATE TABLE IF NOT EXISTS usuarios (
