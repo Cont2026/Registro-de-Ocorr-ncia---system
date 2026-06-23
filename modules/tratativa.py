@@ -8,6 +8,7 @@ from modules.chamados import empacotar_anexos, desempacotar_anexos, anexos_para_
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
 TIPO_FOLHA = "Folha de Pagamento"
+TIPO_FECHAMENTO = "INFORMAR ENTREGÁVEIS"
 
 def buscar_setores():
     rows = run_query(
@@ -76,7 +77,7 @@ def criar_chamado_tratativa(setor_destino, empresa, tipo_inconsistencia, tipo_no
                             nome_parceiro, numero_nota, valor, observacao,
                             nu_financeiro, nu_nota, arquivos, solicitante,
                             prioridade="Normal", nf_retorna="", financeiro_baixado="",
-                            data_entrada=None, data_negociacao=None):
+                            data_entrada=None, data_negociacao=None, atrasos=""):
     """Cria o chamado direto no setor responsavel, ja em 'Em andamento' (aberto pela Contabilidade)."""
     protocolo = gerar_protocolo()
     anexo_dados, anexo_nome = empacotar_anexos(arquivos)
@@ -87,14 +88,15 @@ def criar_chamado_tratativa(setor_destino, empresa, tipo_inconsistencia, tipo_no
     run_query("""INSERT INTO chamados (protocolo,setor,empresa,tipo_inconsistencia,prioridade,nf_retorna,
         solicitante,nome_parceiro,numero_nota,tipo_nota,data_entrada,data_saida,data_negociacao,
         valor,observacao,arquivo_nome,status,aberto_em,financeiro_baixado,anexo_dados,
-        num_unico_financeiro,num_unico_nota)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+        num_unico_financeiro,num_unico_nota,atrasos_entregaveis)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
         (protocolo, setor_destino, empresa or "", tipo_inconsistencia, prioridade or "Normal", nf_retorna or "",
          solicitante, (nome_parceiro or "").strip(), (numero_nota or "").strip(), tipo_nota or "",
          data_entrada or None, None, data_negociacao or None,
          valor_num, (observacao or "").strip(), anexo_nome, "Em andamento",
          datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), financeiro_baixado or "", anexo_dados,
-         (nu_financeiro or "").strip() or None, (nu_nota or "").strip() or None))
+         (nu_financeiro or "").strip() or None, (nu_nota or "").strip() or None,
+         (atrasos or "").strip() or None))
 
     # Log para a lista "Chamados abertos pela Contabilidade"
     try:
@@ -163,7 +165,69 @@ def tela_tratativa():
         _lista_enviados()
         return
 
-    # ===== FLUXO REDUZIDO: Folha de Pagamento (Setor + Empresa + Anexo + Observacao) =====
+    # ===== FLUXO INFORMAR ENTREGÁVEIS (igual à tela do setor) =====
+    if tipo_nota == TIPO_FECHAMENTO:
+        st.markdown("#### 📅 Qual fechamento parcial? *")
+        parciais = ["1º Parcial", "2º Parcial", "3º Parcial", "4º Parcial"]
+        parcial_sel = st.session_state.get("trat_fech_parcial", None)
+        cols_p = st.columns(4)
+        for i, op in enumerate(parciais):
+            with cols_p[i]:
+                ativo = parcial_sel == op
+                if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"trat_fech_parcial_{i}",
+                    use_container_width=True, type="primary" if ativo else "secondary"):
+                    st.session_state["trat_fech_parcial"] = op
+                    st.rerun()
+        parcial = st.session_state.get("trat_fech_parcial", None)
+
+        st.markdown("---")
+        copia_fe = st.multiselect("👥 Setores em cópia (opcional)", nomes_copia, key="trat_fech_copia",
+            help="Esses setores recebem aviso do chamado em cópia.")
+        obs_fe = st.text_area("📝 Observação (opcional)", placeholder="Informações adicionais sobre a entrega...", key="trat_fech_obs")
+        atrasos_fe = st.text_area("⏰ Atrasos de entregáveis (opcional)", placeholder="Descreva eventuais atrasos de entregáveis...", key="trat_fech_atrasos")
+        arq_fe = st.file_uploader("📎 Anexar documentos (opcional)", type=["pdf","png","jpg","jpeg","xlsx","xml","docx","zip"], accept_multiple_files=True, key="trat_fech_arq")
+
+        st.markdown("---")
+        if st.button("📨 Abrir Chamado para o Setor", use_container_width=True, key="trat_fech_enviar"):
+            erros = []
+            if not setor_dados: erros.append("Setor responsavel")
+            if not parcial: erros.append("Fechamento parcial")
+            if erros:
+                st.error(f"Preencha: {', '.join(erros)}")
+                return
+            setor_nome = setor_dados[0]
+            email_setor = setor_dados[1]
+            tipo_final = f"{TIPO_FECHAMENTO} - {parcial}"
+            protocolo = criar_chamado_tratativa(setor_nome, "", tipo_final, TIPO_FECHAMENTO,
+                "", "", "", obs_fe.strip(), "", "", arq_fe, st.session_state.usuario,
+                atrasos=atrasos_fe.strip())
+            try:
+                if email_setor:
+                    _dados, _nomes = empacotar_anexos(arq_fe)
+                    email_novo_chamado(email_setor, protocolo, setor_nome, tipo_final, "Normal",
+                        "", "", st.session_state.usuario,
+                        anexos=anexos_para_email(desempacotar_anexos(_dados, _nomes)),
+                        atrasos=atrasos_fe.strip())
+            except:
+                pass
+            for n in copia_fe:
+                em = mapa_email.get(n)
+                if em and em != email_setor:
+                    try:
+                        salvar_copia(protocolo, n)
+                        email_setor_em_copia(em, protocolo, n, setor_nome)
+                    except:
+                        pass
+            for k in ["trat_tipo_nota","trat_fech_parcial","trat_fech_obs","trat_fech_atrasos","trat_fech_arq","trat_fech_copia"]:
+                st.session_state.pop(k, None)
+            st.cache_data.clear()
+            st.success(f"✅ Chamado **{protocolo}** aberto para {setor_nome} (Em andamento).")
+            st.balloons()
+        st.markdown("---")
+        _lista_enviados()
+        return
+
+    # ===== FLUXO Folha de Pagamento (igual à tela do setor) =====
     if tipo_nota == TIPO_FOLHA:
         st.markdown("#### 🏢 Empresa *")
         emp_sel = st.session_state.get("trat_folha_emp", None)
@@ -193,7 +257,20 @@ def tela_tratativa():
         if inc_f == "Outros":
             inc_f_outros = st.text_input("Descreva a inconsistencia *", key="trat_folha_inc_outros")
 
+        st.markdown("#### 💰 Financeiro Baixado? *")
+        fin_sel_f = st.session_state.get("trat_folha_fin", None)
+        cols_ff = st.columns(2)
+        for i, op in enumerate(["Sim","Não"]):
+            with cols_ff[i]:
+                ativo = fin_sel_f == op
+                if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"trat_folha_fin_{i}",
+                    use_container_width=True, type="primary" if ativo else "secondary"):
+                    st.session_state["trat_folha_fin"] = op
+                    st.rerun()
+        fin_baixado_f = st.session_state.get("trat_folha_fin", None)
+
         st.markdown("---")
+        solicitante_f = st.text_input("👤 Nome do Solicitante *", key="trat_folha_solic")
         copia_f = st.multiselect("👥 Setores em cópia (opcional)", nomes_copia, key="trat_folha_copia",
             help="Esses setores recebem aviso do chamado em cópia.")
         arq_f = st.file_uploader("📎 Anexos *", type=["pdf","png","jpg","jpeg","xlsx","xml","docx","zip"], accept_multiple_files=True, key="trat_folha_arq")
@@ -206,6 +283,8 @@ def tela_tratativa():
             if not empresa_f: erros.append("Empresa")
             if not inc_f: erros.append("Tipo de Inconsistencia")
             if inc_f == "Outros" and not inc_f_outros.strip(): erros.append("Descricao da inconsistencia")
+            if not fin_baixado_f: erros.append("Financeiro Baixado")
+            if not solicitante_f.strip(): erros.append("Nome do Solicitante")
             if not arq_f: erros.append("Anexo")
             if not obs_f.strip(): erros.append("Observacao")
             if erros:
@@ -215,12 +294,13 @@ def tela_tratativa():
             email_setor = setor_dados[1]
             inc_final = f"Outros: {inc_f_outros.strip()}" if inc_f == "Outros" else inc_f
             protocolo = criar_chamado_tratativa(setor_nome, empresa_f, inc_final, TIPO_FOLHA,
-                "", "", "", obs_f.strip(), "", "", arq_f, st.session_state.usuario)
+                "", "", "", obs_f.strip(), "", "", arq_f, solicitante_f.strip(),
+                financeiro_baixado=fin_baixado_f)
             try:
                 if email_setor:
                     _dados, _nomes = empacotar_anexos(arq_f)
                     email_novo_chamado(email_setor, protocolo, setor_nome, TIPO_FOLHA, "Normal",
-                        "", "", st.session_state.usuario,
+                        "", "", solicitante_f.strip(),
                         anexos=anexos_para_email(desempacotar_anexos(_dados, _nomes)))
             except:
                 pass
@@ -232,7 +312,7 @@ def tela_tratativa():
                         email_setor_em_copia(em, protocolo, n, setor_nome)
                     except:
                         pass
-            for k in ["trat_tipo_nota","trat_folha_emp","trat_folha_obs","trat_folha_arq","trat_folha_copia","trat_folha_inc","trat_folha_inc_outros"]:
+            for k in ["trat_tipo_nota","trat_folha_emp","trat_folha_obs","trat_folha_arq","trat_folha_copia","trat_folha_inc","trat_folha_inc_outros","trat_folha_fin","trat_folha_solic"]:
                 st.session_state.pop(k, None)
             st.cache_data.clear()
             st.success(f"✅ Chamado **{protocolo}** aberto para {setor_nome} (Em andamento).")
