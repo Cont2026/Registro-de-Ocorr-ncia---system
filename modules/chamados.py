@@ -408,6 +408,8 @@ def tela_novo_chamado(preview=False, setor_preview=None):
         empresa_fech = ", ".join(st.session_state.get("fech_empresas", []))
 
         st.markdown("---")
+        copia_fech = st.multiselect("👥 Setores em cópia (opcional)",
+            carregar_setores_disponiveis(setor_atual), key="fech_copia")
         obs_fech = st.text_area("📝 Observação (opcional)", placeholder="Informações adicionais sobre a entrega...", key="fech_obs")
         atrasos_fech = st.text_area("⏰ Atrasos de entregáveis (opcional)", placeholder="Descreva eventuais atrasos de entregáveis...", key="fech_atrasos")
         arq_fech = st.file_uploader("📎 Anexar documentos (opcional)",
@@ -425,7 +427,16 @@ def tela_novo_chamado(preview=False, setor_preview=None):
                 st.error("⚠️ Selecione ao menos uma empresa.")
                 return
             protocolo = registrar_fechamento(parcial, obs_fech, arq_fech, atrasos_fech, empresa_fech)
-            for k in ["sel_tipo_nota", "sel_parcial", "fech_obs", "fech_atrasos", "fech_arquivo", "fech_empresas"]:
+            if copia_fech:
+                salvar_copias(protocolo, copia_fech)
+                for s in copia_fech:
+                    try:
+                        email_s = buscar_email_setor(s)
+                        if email_s:
+                            email_setor_em_copia(email_s, protocolo, s, setor_atual)
+                    except:
+                        pass
+            for k in ["sel_tipo_nota", "sel_parcial", "fech_obs", "fech_atrasos", "fech_arquivo", "fech_empresas", "fech_copia"]:
                 st.session_state.pop(k, None)
             st.cache_data.clear()
             st.success(f"✅ Chamado registrado! Protocolo: **{protocolo}**")
