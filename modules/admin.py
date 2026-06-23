@@ -4,7 +4,7 @@ from database.connection import run_query
 def tela_admin():
     st.title("⚙️ Administracao")
     st.markdown("---")
-    aba = st.tabs(["👥 Setores", "📋 Tipos de Inconsistencia", "🗂️ Tipos de Movimentacao", "📧 Notificacoes", "👁️ Visualizar Tela do Setor"])
+    aba = st.tabs(["👥 Setores", "📋 Tipos de Inconsistencia", "🗂️ Tipos de Movimentacao", "📧 Notificacoes", "🗑️ Excluir Chamados", "👁️ Visualizar Tela do Setor"])
 
     with aba[0]:
         st.subheader("Setores cadastrados")
@@ -233,6 +233,74 @@ def tela_admin():
                 """, unsafe_allow_html=True)
 
     with aba[4]:
+        st.subheader("🗑️ Excluir Chamados")
+        st.markdown("Exclua chamados (por exemplo, duplicados). A exclusão é **permanente** e remove também "
+                    "as mensagens, cópias e notificações ligadas ao chamado. O número do protocolo excluído "
+                    "**não é reaproveitado** (fica um espaço vago na sequência, o que é normal).")
+        st.markdown("---")
+
+        busca = st.text_input("🔎 Buscar (protocolo, setor, parceiro ou NF)", key="busca_excluir",
+            placeholder="ex: ROC-202606-0011 ou MKM ou NF 9")
+
+        chamados = run_query("""SELECT protocolo, setor, tipo_inconsistencia, empresa, status,
+            nome_parceiro, numero_nota, aberto_em, solicitante
+            FROM chamados ORDER BY aberto_em DESC""", fetch=True)
+
+        if not chamados:
+            st.info("Nenhum chamado registrado ainda.")
+        else:
+            termo = (busca or "").strip().lower()
+            mostrados = 0
+            for (protocolo, setor, tipo_inc, empresa, status,
+                 parceiro, nf, aberto_em, solicitante) in chamados:
+                if termo:
+                    alvo = " ".join(str(x or "").lower() for x in
+                        [protocolo, setor, tipo_inc, empresa, status, parceiro, nf, solicitante])
+                    if termo not in alvo:
+                        continue
+                mostrados += 1
+
+                c1, c2 = st.columns([6, 1])
+                with c1:
+                    st.markdown(
+                        f"**{protocolo}** — {parceiro or '—'} · NF: {nf or '—'} · "
+                        f"{setor} · {empresa or '—'} · _{status}_")
+                    st.caption(f"{tipo_inc or '—'} · Solicitante: {solicitante or '—'} · Aberto em: {aberto_em}")
+                with c2:
+                    if st.button("🗑️ Apagar", key=f"del_{protocolo}", use_container_width=True):
+                        st.session_state["confirmar_excluir"] = protocolo
+                        st.rerun()
+
+                # Confirmação inline, logo abaixo do chamado escolhido
+                if st.session_state.get("confirmar_excluir") == protocolo:
+                    st.warning(f"⚠️ Tem certeza que deseja excluir **{protocolo}**? "
+                               "Esta ação é permanente e não pode ser desfeita.")
+                    cc1, cc2 = st.columns(2)
+                    with cc1:
+                        if st.button("Sim, excluir", key=f"delsim_{protocolo}",
+                                     use_container_width=True, type="primary"):
+                            try:
+                                run_query("DELETE FROM mensagens WHERE chamado_protocolo=%s", (protocolo,))
+                                run_query("DELETE FROM chamados_copia WHERE protocolo=%s", (protocolo,))
+                                run_query("DELETE FROM notificacoes WHERE protocolo=%s", (protocolo,))
+                                run_query("DELETE FROM chamados WHERE protocolo=%s", (protocolo,))
+                                st.session_state["confirmar_excluir"] = None
+                                st.cache_data.clear()
+                                st.success(f"✅ Chamado {protocolo} excluído.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Não foi possível excluir: {e}")
+                    with cc2:
+                        if st.button("Cancelar", key=f"delnao_{protocolo}", use_container_width=True):
+                            st.session_state["confirmar_excluir"] = None
+                            st.rerun()
+
+                st.markdown("<hr style='margin:6px 0;border:none;border-top:1px solid #eee;'>", unsafe_allow_html=True)
+
+            if termo and mostrados == 0:
+                st.info("Nenhum chamado encontrado para essa busca.")
+
+    with aba[5]:
         st.subheader("👁️ Visualizar Tela do Setor")
         st.markdown("Veja exatamente como os setores enxergam a tela de abertura de chamado. "
                     "É apenas uma simulação — **nenhum chamado é criado** aqui.")
