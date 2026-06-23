@@ -3,7 +3,7 @@ import os
 import calendar
 import json
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from database.connection import run_query
 from modules.email_service import (email_novo_chamado, email_atualizacao_chamado,
@@ -73,6 +73,23 @@ def converter_valor(valor):
     if "," in v and "." in v: v = v.replace(".", "").replace(",", ".")
     elif "," in v: v = v.replace(",", ".")
     return float(v)
+
+def chamado_duplicado_recente(empresa, nome_parceiro, numero_nota, valor_float, horas=1):
+    """Retorna o protocolo de um chamado idêntico (mesma empresa + parceiro + NF + valor)
+    aberto na última 'horas' hora(s), ou None se não houver. Usado apenas no fluxo normal
+    para evitar lançamentos repetidos do mesmo conteúdo."""
+    try:
+        limite = (datetime.now(BRASILIA) - timedelta(hours=horas)).strftime("%Y-%m-%d %H:%M:%S")
+        r = run_query("""SELECT protocolo FROM chamados
+            WHERE empresa=%s AND nome_parceiro=%s AND numero_nota=%s
+              AND ABS(valor - %s) < 0.005
+              AND aberto_em >= %s
+            ORDER BY aberto_em DESC LIMIT 1""",
+            (empresa, (nome_parceiro or "").strip(), (numero_nota or "").strip(),
+             valor_float, limite), fetch=True)
+        return r[0][0] if r else None
+    except:
+        return None
 
 @st.cache_data(ttl=300)
 def carregar_tipos():
@@ -653,6 +670,15 @@ def tela_novo_chamado(preview=False, setor_preview=None):
             valor_float = converter_valor(valor)
         except:
             st.error("⚠️ Valor inválido.")
+            return
+
+        # Bloqueio de conteúdo duplicado (somente fluxo normal): mesmo
+        # parceiro + número da nota + empresa + valor, aberto na última 1 hora.
+        protocolo_dup = chamado_duplicado_recente(empresa, nome_parceiro, numero_nota, valor_float, horas=1)
+        if protocolo_dup:
+            st.error(f"⚠️ Já existe um chamado idêntico aberto há menos de 1 hora "
+                     f"(**{protocolo_dup}**) — mesmo parceiro, nota, empresa e valor. "
+                     f"Se realmente precisa registrar de novo, aguarde 1 hora ou ajuste os dados.")
             return
 
         tipo_final = f"Outros: {tipo_outros_desc.strip()}" if tipo == "Outros" else tipo
