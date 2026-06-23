@@ -180,6 +180,18 @@ def tela_tratativa():
                     st.rerun()
         parcial = st.session_state.get("trat_fech_parcial", None)
 
+        st.markdown("#### 🏢 Empresa *")
+        emp_fe_sel = st.session_state.get("trat_fech_emp", None)
+        cols_efe = st.columns(5)
+        for i, op in enumerate(["1","2","6","13","14"]):
+            with cols_efe[i]:
+                ativo = emp_fe_sel == op
+                if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"trat_fech_emp_{i}",
+                    use_container_width=True, type="primary" if ativo else "secondary"):
+                    st.session_state["trat_fech_emp"] = op
+                    st.rerun()
+        empresa_fe = st.session_state.get("trat_fech_emp", None)
+
         st.markdown("---")
         copia_fe = st.multiselect("👥 Setores em cópia (opcional)", nomes_copia, key="trat_fech_copia",
             help="Esses setores recebem aviso do chamado em cópia.")
@@ -192,13 +204,14 @@ def tela_tratativa():
             erros = []
             if not setor_dados: erros.append("Setor responsavel")
             if not parcial: erros.append("Fechamento parcial")
+            if not empresa_fe: erros.append("Empresa")
             if erros:
                 st.error(f"Preencha: {', '.join(erros)}")
                 return
             setor_nome = setor_dados[0]
             email_setor = setor_dados[1]
             tipo_final = f"{TIPO_FECHAMENTO} - {parcial}"
-            protocolo = criar_chamado_tratativa(setor_nome, "", tipo_final, TIPO_FECHAMENTO,
+            protocolo = criar_chamado_tratativa(setor_nome, empresa_fe, tipo_final, TIPO_FECHAMENTO,
                 "", "", "", obs_fe.strip(), "", "", arq_fe, st.session_state.usuario,
                 atrasos=atrasos_fe.strip())
             try:
@@ -218,7 +231,7 @@ def tela_tratativa():
                         email_setor_em_copia(em, protocolo, n, setor_nome)
                     except:
                         pass
-            for k in ["trat_tipo_nota","trat_fech_parcial","trat_fech_obs","trat_fech_atrasos","trat_fech_arq","trat_fech_copia"]:
+            for k in ["trat_tipo_nota","trat_fech_parcial","trat_fech_obs","trat_fech_atrasos","trat_fech_arq","trat_fech_copia","trat_fech_emp"]:
                 st.session_state.pop(k, None)
             st.cache_data.clear()
             st.success(f"✅ Chamado **{protocolo}** aberto para {setor_nome} (Em andamento).")
