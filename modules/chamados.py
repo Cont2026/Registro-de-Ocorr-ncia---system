@@ -158,10 +158,10 @@ def buscar_email_setor(setor_nome):
     return rows[0][0] if rows else None
 
 def emails_interessados(protocolo, setor_chamado, excluir_email=None):
-    """Contabilidade (sempre) + setor dono + setores em cópia, menos quem está enviando."""
+    """Setor dono + setores em cópia, menos quem está enviando.
+    A Contabilidade NÃO entra aqui: ela já recebe cópia (BCC) automática de tudo,
+    1 por assunto, evitando e-mails duplicados."""
     emails = set()
-    ec = buscar_email_contabilidade()
-    if ec: emails.add(ec)
     es = buscar_email_setor(setor_chamado)
     if es: emails.add(es)
     for s in carregar_copias(protocolo):
