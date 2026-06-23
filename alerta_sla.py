@@ -10,6 +10,8 @@ Regras:
   - Cada nível é avisado só 1 vez por período de espera. Qualquer mensagem nova
     "zera" o relógio (muda a base de atividade) e libera novos avisos.
   - Avisa o SETOR responsável E a CONTABILIDADE.
+  - INFORMAR ENTREGÁVEIS é um registro apenas informativo (sem validação da
+    contabilidade): fica FORA do SLA — não recebe pré-aviso, alerta nem cancelamento.
 Controle de duplicidade: tabela notificacoes (não precisa de tabela nova).
 """
 import os
@@ -22,6 +24,9 @@ from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
+
+# Tipo informativo que NÃO entra no SLA (já é uma entrega, não há o que cronometrar).
+TIPO_FECHAMENTO = "INFORMAR ENTREGÁVEIS"
 
 DB_HOST = os.environ["DB_HOST"]
 DB_NAME = os.environ["DB_NAME"]
@@ -179,8 +184,13 @@ def main():
     conn = conectar()
     try:
         with conn.cursor() as cur:
+            # INFORMAR ENTREGÁVEIS é excluído já aqui (por tipo_nota exato e por
+            # tipo_inconsistencia que começa com o mesmo texto, ex.: "... - 4º Parcial").
             cur.execute("""SELECT protocolo, setor, aberto_em FROM chamados
-                WHERE status IN ('Aberto','Em andamento')""")
+                WHERE status IN ('Aberto','Em andamento')
+                  AND COALESCE(tipo_nota,'') <> %s
+                  AND COALESCE(tipo_inconsistencia,'') NOT LIKE %s""",
+                (TIPO_FECHAMENTO, TIPO_FECHAMENTO + "%"))
             chamados = cur.fetchall()
 
         cont_email = email_contabilidade(conn)
