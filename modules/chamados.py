@@ -319,7 +319,7 @@ def registrar_fechamento(parcial, observacao="", arquivos=None, atrasos=""):
 
     return protocolo
 
-def registrar_folha(empresa, fin_baixado, solicitante, observacao, arquivos=None):
+def registrar_folha(empresa, fin_baixado, solicitante, observacao, arquivos=None, tipo_inc=None):
     total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
     protocolo = f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-{str(total+1).zfill(4)}"
 
@@ -329,7 +329,7 @@ def registrar_folha(empresa, fin_baixado, solicitante, observacao, arquivos=None
         solicitante,nome_parceiro,numero_nota,tipo_nota,data_entrada,data_saida,data_negociacao,
         valor,observacao,arquivo_nome,status,aberto_em,financeiro_baixado,anexo_dados)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-        (protocolo, st.session_state.setor, empresa, TIPO_FOLHA, "Normal", "",
+        (protocolo, st.session_state.setor, empresa, tipo_inc or TIPO_FOLHA, "Normal", "",
          solicitante, "", "", TIPO_FOLHA,
          None, None, None,
          0, observacao, anexo_nome, "Aberto",
@@ -340,7 +340,7 @@ def registrar_folha(empresa, fin_baixado, solicitante, observacao, arquivos=None
         if email_cont:
             anexos = anexos_para_email(desempacotar_anexos(anexo_dados, anexo_nome))
             email_novo_chamado(email_cont, protocolo, st.session_state.setor,
-                TIPO_FOLHA, "Normal", "", "", solicitante, anexos=anexos)
+                tipo_inc or TIPO_FOLHA, "Normal", "", "", solicitante, anexos=anexos)
     except:
         pass
 
@@ -428,6 +428,22 @@ def tela_novo_chamado(preview=False, setor_preview=None):
                     st.rerun()
         empresa_f = st.session_state.get("folha_empresa", None)
 
+        st.markdown("#### 📋 Tipo de Inconsistência *")
+        inc_folha_sel = st.session_state.get("folha_inc", None)
+        incs_folha = filtrar_inconsistencias(tipos, TIPO_FOLHA) + ["Outros"]
+        cols_if = st.columns(min(len(incs_folha), 4))
+        for i, op in enumerate(incs_folha):
+            with cols_if[i % len(cols_if)]:
+                ativo = inc_folha_sel == op
+                if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"folha_inc_{i}",
+                    use_container_width=True, type="primary" if ativo else "secondary"):
+                    st.session_state["folha_inc"] = op
+                    st.rerun()
+        inc_folha = st.session_state.get("folha_inc", None)
+        inc_folha_outros = ""
+        if inc_folha == "Outros":
+            inc_folha_outros = st.text_input("Descreva a inconsistência *", key="folha_inc_outros")
+
         st.markdown("#### 💰 Financeiro Baixado *")
         fin_sel = st.session_state.get("folha_fin", None)
         cfb = st.columns(2)
@@ -454,6 +470,8 @@ def tela_novo_chamado(preview=False, setor_preview=None):
                 return
             erros = []
             if not empresa_f: erros.append("Empresa")
+            if not inc_folha: erros.append("Tipo de Inconsistência")
+            if inc_folha == "Outros" and not inc_folha_outros.strip(): erros.append("Descrição da inconsistência")
             if not fin_baixado_f: erros.append("Financeiro Baixado")
             if not solicitante_f.strip(): erros.append("Nome do Solicitante")
             if not arq_folha: erros.append("Anexo")
@@ -461,8 +479,9 @@ def tela_novo_chamado(preview=False, setor_preview=None):
             if erros:
                 st.error(f"⚠️ Preencha: {', '.join(erros)}")
                 return
+            inc_final = f"Outros: {inc_folha_outros.strip()}" if inc_folha == "Outros" else inc_folha
             protocolo = registrar_folha(empresa_f, fin_baixado_f, solicitante_f.strip(),
-                                        obs_folha.strip(), arq_folha)
+                                        obs_folha.strip(), arq_folha, tipo_inc=inc_final)
             if copia_folha:
                 salvar_copias(protocolo, copia_folha)
                 for s in copia_folha:
@@ -472,7 +491,7 @@ def tela_novo_chamado(preview=False, setor_preview=None):
                             email_setor_em_copia(email_s, protocolo, s, setor_atual)
                     except:
                         pass
-            for k in ["sel_tipo_nota", "folha_empresa", "folha_fin", "folha_solic", "folha_obs", "folha_arquivo", "folha_copia"]:
+            for k in ["sel_tipo_nota", "folha_empresa", "folha_fin", "folha_solic", "folha_obs", "folha_arquivo", "folha_copia", "folha_inc", "folha_inc_outros"]:
                 st.session_state.pop(k, None)
             st.cache_data.clear()
             st.success(f"✅ Chamado registrado! Protocolo: **{protocolo}**")
