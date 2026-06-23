@@ -54,7 +54,7 @@ def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral"
     """anexos: lista de tuplas (nome_arquivo, conteudo_bytes).
     copiar_contabilidade: quando False, NÃO coloca a Contabilidade em BCC
     (usado no e-mail de 'você está em cópia', que é redundante para ela).
-    Quando há protocolo, adiciona cabeçalhos de thread (References/In-Reply-To)
+    Quando há protocolo, adiciona cabeçalhos de thread (Message-ID único + References)
     para que o Outlook agrupe todas as notificações do mesmo protocolo."""
     try:
         api_key = st.secrets["SENDGRID_API_KEY"]
@@ -69,11 +69,16 @@ def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral"
         }
 
         # Cabeçalhos de agrupamento por protocolo (thread no Outlook).
+        # - Message-ID próprio e único por e-mail (nó válido da conversa).
+        # - References apontando para o "ancestral" fixo do protocolo: é o que
+        #   amarra todos os e-mails do mesmo protocolo na mesma thread.
         ref = _ref_thread(protocolo)
         if ref:
+            agora_id = datetime.now(BRASILIA).strftime("%Y%m%d%H%M%S%f")
+            msg_id = f"<roc-{str(protocolo).strip().lower()}-{agora_id}@{DOMINIO_THREAD}>"
             dados["headers"] = {
+                "Message-ID": msg_id,
                 "References": ref,
-                "In-Reply-To": ref,
             }
 
         # Contabilidade recebe cópia (BCC) de todas as notificações automaticamente,
