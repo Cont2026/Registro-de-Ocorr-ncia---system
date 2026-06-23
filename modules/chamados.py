@@ -734,12 +734,14 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
                     (novo_status, atendente.strip(), agora, novo_status, agora, protocolo))
                 try:
                     destinos = emails_interessados(protocolo, setor)
+                    nome_atend = atendente.strip()
+                    data_br = datetime.now(BRASILIA).strftime("%d/%m/%Y às %H:%M")
                     if novo_status == "Resolvido":
                         for ed in destinos:
-                            email_conclusao_chamado(None, ed, protocolo, tipo, agora)
+                            email_conclusao_chamado(None, ed, protocolo, tipo, data_br, atendente=nome_atend)
                     else:
                         for ed in destinos:
-                            email_atualizacao_chamado(ed, protocolo, novo_status, setor)
+                            email_atualizacao_chamado(ed, protocolo, novo_status, setor, atendente=nome_atend)
                 except:
                     pass
                 st.cache_data.clear()
