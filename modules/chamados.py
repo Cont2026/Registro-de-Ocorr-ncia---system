@@ -289,7 +289,7 @@ def exibir_chat(protocolo, setor_chamado):
                 st.rerun()
 
 
-def registrar_fechamento(parcial, observacao="", arquivos=None, atrasos=""):
+def registrar_fechamento(parcial, observacao="", arquivos=None, atrasos="", empresa=""):
     tipo_final = f"{TIPO_FECHAMENTO} - {parcial}"
     total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
     protocolo = f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-{str(total+1).zfill(4)}"
@@ -300,7 +300,7 @@ def registrar_fechamento(parcial, observacao="", arquivos=None, atrasos=""):
         solicitante,nome_parceiro,numero_nota,tipo_nota,data_entrada,data_saida,data_negociacao,
         valor,observacao,arquivo_nome,status,aberto_em,financeiro_baixado,anexo_dados,atrasos_entregaveis)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-        (protocolo, st.session_state.setor, "", tipo_final, "Normal", "",
+        (protocolo, st.session_state.setor, empresa or "", tipo_final, "Normal", "",
          st.session_state.usuario, "", "", TIPO_FECHAMENTO,
          None, None, None,
          0, (observacao or "").strip(), anexo_nome, "Aberto",
@@ -391,6 +391,18 @@ def tela_novo_chamado(preview=False, setor_preview=None):
                     st.rerun()
         parcial = st.session_state.get("sel_parcial", None)
 
+        st.markdown("#### 🏢 Empresa *")
+        emp_fech_sel = st.session_state.get("fech_empresa", None)
+        cols_ef = st.columns(5)
+        for i, op in enumerate(["1", "2", "6", "13", "14"]):
+            with cols_ef[i]:
+                ativo = emp_fech_sel == op
+                if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"fech_emp_{i}",
+                    use_container_width=True, type="primary" if ativo else "secondary"):
+                    st.session_state["fech_empresa"] = op
+                    st.rerun()
+        empresa_fech = st.session_state.get("fech_empresa", None)
+
         st.markdown("---")
         obs_fech = st.text_area("📝 Observação (opcional)", placeholder="Informações adicionais sobre a entrega...", key="fech_obs")
         atrasos_fech = st.text_area("⏰ Atrasos de entregáveis (opcional)", placeholder="Descreva eventuais atrasos de entregáveis...", key="fech_atrasos")
@@ -405,8 +417,11 @@ def tela_novo_chamado(preview=False, setor_preview=None):
             if not parcial:
                 st.error("⚠️ Selecione o fechamento parcial.")
                 return
-            protocolo = registrar_fechamento(parcial, obs_fech, arq_fech, atrasos_fech)
-            for k in ["sel_tipo_nota", "sel_parcial", "fech_obs", "fech_atrasos", "fech_arquivo"]:
+            if not empresa_fech:
+                st.error("⚠️ Selecione a empresa.")
+                return
+            protocolo = registrar_fechamento(parcial, obs_fech, arq_fech, atrasos_fech, empresa_fech)
+            for k in ["sel_tipo_nota", "sel_parcial", "fech_obs", "fech_atrasos", "fech_arquivo", "fech_empresa"]:
                 st.session_state.pop(k, None)
             st.cache_data.clear()
             st.success(f"✅ Chamado registrado! Protocolo: **{protocolo}**")
