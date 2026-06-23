@@ -2,6 +2,9 @@ import streamlit as st
 import base64
 from database.connection import init_db, run_query
 
+# Tipo informativo que NÃO entra em contadores de pendentes (não tem ciclo de status).
+TIPO_FECHAMENTO = "INFORMAR ENTREGÁVEIS"
+
 st.set_page_config(page_title="ROC - Registro de Ocorrencias Contabeis", page_icon="📋", layout="wide", initial_sidebar_state="expanded")
 
 try:
@@ -199,8 +202,16 @@ def sidebar():
         """, unsafe_allow_html=True)
 
         if st.session_state.perfil == "contabilidade":
-            abertos = run_query("SELECT COUNT(*) FROM chamados WHERE status='Aberto'", fetch=True)[0][0]
-            em_andamento = run_query("SELECT COUNT(*) FROM chamados WHERE status='Em andamento'", fetch=True)[0][0]
+            # INFORMAR ENTREGÁVEIS não entra no contador de pendentes (registro informativo).
+            filtro_entregaveis = """AND COALESCE(tipo_nota,'') <> %s
+                AND COALESCE(tipo_inconsistencia,'') NOT LIKE %s"""
+            params_entregaveis = (TIPO_FECHAMENTO, TIPO_FECHAMENTO + "%")
+            abertos = run_query(
+                f"SELECT COUNT(*) FROM chamados WHERE status='Aberto' {filtro_entregaveis}",
+                params_entregaveis, fetch=True)[0][0]
+            em_andamento = run_query(
+                f"SELECT COUNT(*) FROM chamados WHERE status='Em andamento' {filtro_entregaveis}",
+                params_entregaveis, fetch=True)[0][0]
             if abertos > 0 or em_andamento > 0:
                 txt_abertos = f"<p style='font-size:12px;color:white;margin:0;'>🔴 {abertos} aberto(s)</p>" if abertos > 0 else ""
                 txt_andamento = f"<p style='font-size:12px;color:white;margin:0;'>🟡 {em_andamento} em andamento</p>" if em_andamento > 0 else ""
