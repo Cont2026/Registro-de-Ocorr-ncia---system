@@ -51,8 +51,9 @@ def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral"
             "content": [{"type": "text/html", "value": corpo_html}]
         }
 
-        # Contabilidade recebe cópia (BCC) das notificações automaticamente,
-        # mas apenas 1 vez por assunto (evita várias cópias quando há vários setores).
+        # Contabilidade recebe cópia (BCC) de todas as notificações automaticamente,
+        # mas apenas 1 vez por assunto (evita várias cópias quando há vários setores),
+        # e não duplica quando o e-mail já é destinado a ela.
         email_cont = _email_contabilidade()
         if email_cont and email_cont.strip().lower() != (destinatario or "").strip().lower():
             agora = datetime.now(BRASILIA).timestamp()
@@ -61,7 +62,6 @@ def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral"
             if agora - ultimo > 60:  # mesma "rodada" de envios: só a 1ª cópia
                 dados["personalizations"][0]["bcc"] = [{"email": email_cont}]
                 _bcc_recente[chave] = agora
-                # limpa entradas antigas para não crescer indefinidamente
                 for k in [k for k, v in _bcc_recente.items() if agora - v > 600]:
                     _bcc_recente.pop(k, None)
 
@@ -160,10 +160,11 @@ def email_novo_chamado(email_contabilidade, protocolo, setor, tipo, prioridade, 
     """
     return enviar_email(email_contabilidade, assunto, corpo, protocolo, "novo_chamado", anexos=anexos)
 
-def email_atualizacao_chamado(email_setor, protocolo, novo_status, setor=""):
+def email_atualizacao_chamado(email_setor, protocolo, novo_status, setor="", atendente=""):
     cores = {"Aberto":"#ef4444","Em andamento":"#f59e0b","Resolvido":"#22c55e","Cancelado":"#6b7280"}
     cor = cores.get(novo_status, "#041747")
     assunto = f"ROC — Chamado {protocolo} atualizado para {novo_status}"
+    linha_atend = tabela_row("Atualizado por", atendente) if atendente else ""
     corpo = f"""
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;padding:20px;border-radius:12px;">
         {cabecalho_email()}
@@ -172,6 +173,7 @@ def email_atualizacao_chamado(email_setor, protocolo, novo_status, setor=""):
             <table style="width:100%;border-collapse:collapse;">
                 {tabela_row("Protocolo", protocolo, True)}
                 {tabela_row("Novo Status", f'<span style="color:{cor};font-weight:700;">{novo_status}</span>')}
+                {linha_atend}
                 {tabela_row("Data", datetime.now(BRASILIA).strftime("%d/%m/%Y às %H:%M"), True)}
             </table>
             {botao_chamado(protocolo)}
@@ -181,8 +183,9 @@ def email_atualizacao_chamado(email_setor, protocolo, novo_status, setor=""):
     """
     return enviar_email(email_setor, assunto, corpo, protocolo, "atualizacao_status")
 
-def email_conclusao_chamado(email_contabilidade, email_setor, protocolo, tipo, data_conclusao):
+def email_conclusao_chamado(email_contabilidade, email_setor, protocolo, tipo, data_conclusao, atendente=""):
     assunto = f"ROC — Chamado {protocolo} concluído"
+    linha_atend = tabela_row("Concluído por", atendente, True) if atendente else ""
     corpo = f"""
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;padding:20px;border-radius:12px;">
         {cabecalho_email()}
@@ -193,6 +196,7 @@ def email_conclusao_chamado(email_contabilidade, email_setor, protocolo, tipo, d
                 {tabela_row("Tipo", tipo)}
                 {tabela_row("Status Final", '<span style="color:#22c55e;font-weight:700;">Resolvido</span>', True)}
                 {tabela_row("Data de Conclusão", data_conclusao)}
+                {linha_atend}
             </table>
             {botao_chamado(protocolo)}
         </div>
