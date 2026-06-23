@@ -37,8 +37,10 @@ def _email_contabilidade():
     except:
         return None
 
-def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral", anexos=None):
-    """anexos: lista de tuplas (nome_arquivo, conteudo_bytes)."""
+def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral", anexos=None, copiar_contabilidade=True):
+    """anexos: lista de tuplas (nome_arquivo, conteudo_bytes).
+    copiar_contabilidade: quando False, NÃO coloca a Contabilidade em BCC
+    (usado no e-mail de 'você está em cópia', que é redundante para ela)."""
     try:
         api_key = st.secrets["SENDGRID_API_KEY"]
         remetente = st.secrets["REMETENTE_EMAIL"]
@@ -54,16 +56,18 @@ def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral"
         # Contabilidade recebe cópia (BCC) de todas as notificações automaticamente,
         # mas apenas 1 vez por assunto (evita várias cópias quando há vários setores),
         # e não duplica quando o e-mail já é destinado a ela.
-        email_cont = _email_contabilidade()
-        if email_cont and email_cont.strip().lower() != (destinatario or "").strip().lower():
-            agora = datetime.now(BRASILIA).timestamp()
-            chave = (assunto or "").strip().lower()
-            ultimo = _bcc_recente.get(chave, 0)
-            if agora - ultimo > 60:  # mesma "rodada" de envios: só a 1ª cópia
-                dados["personalizations"][0]["bcc"] = [{"email": email_cont}]
-                _bcc_recente[chave] = agora
-                for k in [k for k, v in _bcc_recente.items() if agora - v > 600]:
-                    _bcc_recente.pop(k, None)
+        # Quando copiar_contabilidade=False, esse BCC é suprimido.
+        if copiar_contabilidade:
+            email_cont = _email_contabilidade()
+            if email_cont and email_cont.strip().lower() != (destinatario or "").strip().lower():
+                agora = datetime.now(BRASILIA).timestamp()
+                chave = (assunto or "").strip().lower()
+                ultimo = _bcc_recente.get(chave, 0)
+                if agora - ultimo > 60:  # mesma "rodada" de envios: só a 1ª cópia
+                    dados["personalizations"][0]["bcc"] = [{"email": email_cont}]
+                    _bcc_recente[chave] = agora
+                    for k in [k for k, v in _bcc_recente.items() if agora - v > 600]:
+                        _bcc_recente.pop(k, None)
 
         if anexos:
             lista_anexos = []
@@ -233,6 +237,13 @@ def email_nova_mensagem(email_destinatario, protocolo, autor, mensagem):
     return enviar_email(email_destinatario, assunto, corpo, protocolo, "nova_mensagem")
 
 def email_setor_em_copia(email_setor, protocolo, setor, aberto_por=""):
+    # A Contabilidade recebe cópia (BCC) de tudo e enxerga quem está em cópia direto
+    # no card do chamado, então este e-mail de "você está em cópia" é redundante para ela:
+    # não é enviado a ela diretamente nem em BCC.
+    email_cont = _email_contabilidade()
+    if email_cont and email_cont.strip().lower() == (email_setor or "").strip().lower():
+        return True
+
     assunto = f"ROC — Você foi incluído no chamado {protocolo}"
     info_aberto = tabela_row("Aberto por", aberto_por, True) if aberto_por else ""
     corpo = f"""
@@ -252,4 +263,4 @@ def email_setor_em_copia(email_setor, protocolo, setor, aberto_por=""):
         {rodape_email()}
     </div>
     """
-    return enviar_email(email_setor, assunto, corpo, protocolo, "copia_chamado")
+    return enviar_email(email_setor, assunto, corpo, protocolo, "copia_chamado", copiar_contabilidade=False)
