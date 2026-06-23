@@ -700,11 +700,19 @@ def tela_novo_chamado(preview=False, setor_preview=None):
 
 def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, aberto_em, solicitante, fin_baixado, setor, eh_contabilidade=False, protocolo_aberto=None):
     status_cor = {"Aberto":"🔴","Em andamento":"🟡","Resolvido":"🟢","Cancelado":"⚫"}
+    # INFORMAR ENTREGÁVEIS é um registro apenas informativo: não há validação da
+    # contabilidade, portanto não exibe status no cabeçalho nem controle de status.
+    eh_entregaveis = str(tipo or "").startswith(TIPO_FECHAMENTO)
     expanded = protocolo == protocolo_aberto
-    label = f"{status_cor.get(status,'⚪')} {protocolo} — {parceiro} | NF: {nf}"
-    if eh_contabilidade:
-        label += f" | {setor}"
-    label += f" | {status}"
+    if eh_entregaveis:
+        label = f"📦 {protocolo} — {parceiro} | NF: {nf}"
+        if eh_contabilidade:
+            label += f" | {setor}"
+    else:
+        label = f"{status_cor.get(status,'⚪')} {protocolo} — {parceiro} | NF: {nf}"
+        if eh_contabilidade:
+            label += f" | {setor}"
+        label += f" | {status}"
 
     with st.expander(label, expanded=expanded):
         c1,c2,c3,c4 = st.columns(4)
@@ -764,8 +772,9 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
                     except:
                         st.caption(f"📎 {an.get('nome') or 'anexo'} (não foi possível carregar)")
 
-        # Atualizar status (somente contabilidade)
-        if eh_contabilidade:
+        # Atualizar status (somente contabilidade) — não se aplica a INFORMAR ENTREGÁVEIS,
+        # pois é um registro informativo, sem ciclo de validação.
+        if eh_contabilidade and not eh_entregaveis:
             st.markdown("---")
             cs1, cs2 = st.columns(2)
             with cs1:
