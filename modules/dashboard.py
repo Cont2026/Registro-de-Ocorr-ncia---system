@@ -378,8 +378,10 @@ def tela_dashboard():
         if dfn.empty:
             st.info("Nenhuma notificação desse tipo.")
         else:
+            # 1 por movimentação: agrupa as cópias do mesmo evento (mesmo protocolo + tipo + minuto)
+            dfn["_evt"] = dfn["tipo"].astype(str) + "|" + dfn["enviado_em"].astype(str).str.slice(0, 16)
             cons = dfn.groupby("protocolo").agg(
-                total=("tipo", "size"),
+                total=("_evt", "nunique"),
                 ultima=("enviado_em", "max")
             ).reset_index().sort_values(["total", "ultima"], ascending=[False, False])
             try:
@@ -418,8 +420,11 @@ def tela_dashboard():
         dft = pd.DataFrame(notifs_raw, columns=["protocolo", "tipo", "enviado_em"])
         dft["protocolo"] = dft["protocolo"].replace("", None).fillna("(sem protocolo)")
         dft["tipo_label"] = dft["tipo"].map(lambda t: LABELS_NOTIF.get(t, t) if t else "—")
+        # 1 por movimentação: identifica o evento (protocolo + tipo + minuto) e remove as cópias
+        dft["_evt"] = dft["protocolo"].astype(str) + "|" + dft["tipo"].astype(str) + "|" + dft["enviado_em"].astype(str).str.slice(0, 16)
+        dft_evt = dft.drop_duplicates(subset="_evt")
         df_notif_total = (
-            dft.groupby("protocolo")
+            dft_evt.groupby("protocolo")
             .agg(total=("tipo", "size"), ultima=("enviado_em", "max"))
             .reset_index()
             .rename(columns={"protocolo": "Protocolo", "total": "Total de Notificações", "ultima": "Última Notificação"})
@@ -429,7 +434,7 @@ def tela_dashboard():
             df_notif_total["Última Notificação"] = pd.to_datetime(df_notif_total["Última Notificação"]).dt.strftime("%d/%m/%Y %H:%M")
         except:
             pass
-        piv = dft.pivot_table(index="protocolo", columns="tipo_label",
+        piv = dft_evt.pivot_table(index="protocolo", columns="tipo_label",
                               values="enviado_em", aggfunc="count", fill_value=0).reset_index()
         piv = piv.rename(columns={"protocolo": "Protocolo"})
         cols_tipos = [c for c in piv.columns if c != "Protocolo"]
