@@ -531,10 +531,10 @@ def tela_novo_chamado(preview=False, setor_preview=None):
     # === FLUXO NORMAL ===
     eh_compra = "compra" in tipo_nota.lower()
     if eh_compra:
-        data_entrada = st.date_input("📥 Data da Nota *", value=None, key="data_entrada")
+        data_entrada = st.date_input("📥 Data da Nota *", value=None, format="DD/MM/YYYY", key="data_entrada")
         data_negociacao = None
     else:
-        data_negociacao = st.date_input("🤝 Data de Negociação *", value=None, key="data_negociacao")
+        data_negociacao = st.date_input("🤝 Data de Negociação *", value=None, format="DD/MM/YYYY", key="data_negociacao")
         data_entrada = None
 
     st.markdown("---")
