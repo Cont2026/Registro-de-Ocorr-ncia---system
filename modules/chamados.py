@@ -391,17 +391,21 @@ def tela_novo_chamado(preview=False, setor_preview=None):
                     st.rerun()
         parcial = st.session_state.get("sel_parcial", None)
 
-        st.markdown("#### 🏢 Empresa *")
-        emp_fech_sel = st.session_state.get("fech_empresa", None)
+        st.markdown("#### 🏢 Empresa * (pode marcar mais de uma)")
+        emps_sel = st.session_state.get("fech_empresas", [])
         cols_ef = st.columns(5)
         for i, op in enumerate(["1", "2", "6", "13", "14"]):
             with cols_ef[i]:
-                ativo = emp_fech_sel == op
+                ativo = op in emps_sel
                 if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"fech_emp_{i}",
                     use_container_width=True, type="primary" if ativo else "secondary"):
-                    st.session_state["fech_empresa"] = op
+                    if ativo:
+                        emps_sel.remove(op)
+                    else:
+                        emps_sel.append(op)
+                    st.session_state["fech_empresas"] = emps_sel
                     st.rerun()
-        empresa_fech = st.session_state.get("fech_empresa", None)
+        empresa_fech = ", ".join(st.session_state.get("fech_empresas", []))
 
         st.markdown("---")
         obs_fech = st.text_area("📝 Observação (opcional)", placeholder="Informações adicionais sobre a entrega...", key="fech_obs")
@@ -418,10 +422,10 @@ def tela_novo_chamado(preview=False, setor_preview=None):
                 st.error("⚠️ Selecione o fechamento parcial.")
                 return
             if not empresa_fech:
-                st.error("⚠️ Selecione a empresa.")
+                st.error("⚠️ Selecione ao menos uma empresa.")
                 return
             protocolo = registrar_fechamento(parcial, obs_fech, arq_fech, atrasos_fech, empresa_fech)
-            for k in ["sel_tipo_nota", "sel_parcial", "fech_obs", "fech_atrasos", "fech_arquivo", "fech_empresa"]:
+            for k in ["sel_tipo_nota", "sel_parcial", "fech_obs", "fech_atrasos", "fech_arquivo", "fech_empresas"]:
                 st.session_state.pop(k, None)
             st.cache_data.clear()
             st.success(f"✅ Chamado registrado! Protocolo: **{protocolo}**")
