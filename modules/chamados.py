@@ -347,8 +347,11 @@ def registrar_fechamento(parcial, observacao="", arquivos=None, atrasos="", empr
             email_novo_chamado(email_cont, protocolo, st.session_state.setor,
                 tipo_final, "Normal", "", "", st.session_state.usuario, anexos=anexos,
                 atrasos=(atrasos or "").strip())
-    except:
-        pass
+        else:
+            st.warning("⚠️ [diagnóstico] E-mail da contabilidade não encontrado no banco (buscar_email_contabilidade retornou vazio).")
+    except Exception as e:
+        # DIAGNÓSTICO TEMPORÁRIO: mostra o erro do envio em vez de engolir.
+        st.error(f"⚠️ [diagnóstico] Falha ao enviar e-mail do entregável: {type(e).__name__}: {e}")
 
     return protocolo
 
