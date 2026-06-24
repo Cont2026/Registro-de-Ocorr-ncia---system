@@ -38,7 +38,10 @@ def _email_contabilidade():
         return None
 
 def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral", anexos=None, copiar_contabilidade=True):
-    """anexos: lista de tuplas (nome_arquivo, conteudo_bytes).
+    """destinatario: pode ser um e-mail (str) OU uma lista de e-mails.
+    Quando é lista, o 1º vira 'Para' e os demais entram em CC — assim sai
+    UM e-mail só (em vez de um por pessoa), economizando cota de envio.
+    anexos: lista de tuplas (nome_arquivo, conteudo_bytes).
     copiar_contabilidade: quando False, NÃO coloca a Contabilidade em BCC
     (usado no e-mail de 'você está em cópia', que é redundante para ela)."""
     try:
@@ -46,8 +49,28 @@ def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral"
         remetente = st.secrets["REMETENTE_EMAIL"]
         nome_remetente = st.secrets["REMETENTE_NOME"]
 
+        # Normaliza a entrada: aceita str ou lista, remove vazios e duplicados.
+        if isinstance(destinatario, (list, tuple, set)):
+            bruto = list(destinatario)
+        else:
+            bruto = [destinatario]
+        vistos = set()
+        dest_unicos = []
+        for e in bruto:
+            el = str(e or "").strip()
+            if el and el.lower() not in vistos:
+                vistos.add(el.lower())
+                dest_unicos.append(el)
+        if not dest_unicos:
+            return False
+
+        # 1º destinatário = "Para"; os demais = CC (1 e-mail só para todos).
+        personalization = {"to": [{"email": dest_unicos[0]}]}
+        if len(dest_unicos) > 1:
+            personalization["cc"] = [{"email": e} for e in dest_unicos[1:]]
+
         dados = {
-            "personalizations": [{"to": [{"email": destinatario}]}],
+            "personalizations": [personalization],
             "from": {"email": remetente, "name": nome_remetente},
             "subject": assunto,
             "content": [{"type": "text/html", "value": corpo_html}]
@@ -55,16 +78,16 @@ def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral"
 
         # Contabilidade recebe cópia (BCC) de todas as notificações automaticamente,
         # mas apenas 1 vez por assunto (evita várias cópias quando há vários setores),
-        # e não duplica quando o e-mail já é destinado a ela.
+        # e não duplica quando a contabilidade já está entre os destinatários (To/CC).
         # Quando copiar_contabilidade=False, esse BCC é suprimido.
         if copiar_contabilidade:
             email_cont = _email_contabilidade()
-            if email_cont and email_cont.strip().lower() != (destinatario or "").strip().lower():
+            if email_cont and email_cont.strip().lower() not in vistos:
                 agora = datetime.now(BRASILIA).timestamp()
                 chave = (assunto or "").strip().lower()
                 ultimo = _bcc_recente.get(chave, 0)
                 if agora - ultimo > 60:  # mesma "rodada" de envios: só a 1ª cópia
-                    dados["personalizations"][0]["bcc"] = [{"email": email_cont}]
+                    personalization["bcc"] = [{"email": email_cont}]
                     _bcc_recente[chave] = agora
                     for k in [k for k, v in _bcc_recente.items() if agora - v > 600]:
                         _bcc_recente.pop(k, None)
@@ -94,10 +117,14 @@ def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral"
             method="POST"
         )
         urllib.request.urlopen(req)
-        registrar_notificacao(protocolo, destinatario, assunto, tipo, True)
+        registrar_notificacao(protocolo, ", ".join(dest_unicos), assunto, tipo, True)
         return True
     except Exception as e:
-        registrar_notificacao(protocolo, destinatario, assunto, tipo, False)
+        try:
+            log_dest = ", ".join(dest_unicos)
+        except:
+            log_dest = str(destinatario)
+        registrar_notificacao(protocolo, log_dest, assunto, tipo, False)
         return False
 
 def botao_chamado(protocolo):
