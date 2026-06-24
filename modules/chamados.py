@@ -299,8 +299,9 @@ def exibir_chat(protocolo, setor_chamado):
                 try:
                     texto_email = nova_msg.strip() if tem_texto else "[anexo enviado]"
                     destinos = emails_interessados(protocolo, setor_chamado, st.session_state.get("email"))
-                    for email_dest in destinos:
-                        email_nova_mensagem(email_dest, protocolo, st.session_state.usuario, texto_email)
+                    if destinos:
+                        # 1 e-mail só (1º destinatário em "Para", os demais em CC)
+                        email_nova_mensagem(list(destinos), protocolo, st.session_state.usuario, texto_email)
                 except:
                     pass
                 st.rerun()
@@ -820,12 +821,12 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
                     destinos = emails_interessados(protocolo, setor)
                     nome_atend = atendente.strip()
                     data_br = datetime.now(BRASILIA).strftime("%d/%m/%Y às %H:%M")
-                    if novo_status == "Resolvido":
-                        for ed in destinos:
-                            email_conclusao_chamado(None, ed, protocolo, tipo, data_br, atendente=nome_atend)
-                    else:
-                        for ed in destinos:
-                            email_atualizacao_chamado(ed, protocolo, novo_status, setor, atendente=nome_atend)
+                    if destinos:
+                        # 1 e-mail só (1º destinatário em "Para", os demais em CC)
+                        if novo_status == "Resolvido":
+                            email_conclusao_chamado(None, list(destinos), protocolo, tipo, data_br, atendente=nome_atend)
+                        else:
+                            email_atualizacao_chamado(list(destinos), protocolo, novo_status, setor, atendente=nome_atend)
                 except:
                     pass
                 st.cache_data.clear()
