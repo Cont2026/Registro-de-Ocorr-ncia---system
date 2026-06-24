@@ -1,5 +1,6 @@
 import streamlit as st
 import urllib.request
+import urllib.error
 import json
 import base64
 import mimetypes
@@ -119,12 +120,28 @@ def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral"
         urllib.request.urlopen(req)
         registrar_notificacao(protocolo, ", ".join(dest_unicos), assunto, tipo, True)
         return True
-    except Exception as e:
+    except urllib.error.HTTPError as e:
+        # O SendGrid recusou o envio: captura o código e a mensagem real da resposta
+        # e grava no "assunto" da notificação, para aparecer na aba Notificações do Admin.
+        try:
+            corpo_erro = e.read().decode("utf-8", "ignore")
+        except:
+            corpo_erro = ""
+        motivo = f"[ERRO SendGrid {e.code}] {corpo_erro[:400]}"
         try:
             log_dest = ", ".join(dest_unicos)
         except:
             log_dest = str(destinatario)
-        registrar_notificacao(protocolo, log_dest, assunto, tipo, False)
+        registrar_notificacao(protocolo, log_dest, f"{assunto} {motivo}", tipo, False)
+        return False
+    except Exception as e:
+        # Outra falha (rede, secret ausente, etc.): grava o tipo e a mensagem do erro.
+        motivo = f"[ERRO {type(e).__name__}] {str(e)[:400]}"
+        try:
+            log_dest = ", ".join(dest_unicos)
+        except:
+            log_dest = str(destinatario)
+        registrar_notificacao(protocolo, log_dest, f"{assunto} {motivo}", tipo, False)
         return False
 
 def botao_chamado(protocolo):
@@ -164,6 +181,9 @@ def tabela_row(label, valor, alt=False):
 def email_novo_chamado(email_contabilidade, protocolo, setor, tipo, prioridade, parceiro, numero_nota, solicitante, anexos=None, nu_financeiro="", nu_nota="", atrasos=""):
     assunto = f"ROC — Novo Chamado {protocolo}"
     cor_prio = "#ef4444" if prioridade == "Urgente" else "#22c55e"
+    # Linhas que só aparecem quando têm conteúdo (ex.: INFORMAR ENTREGÁVEIS não tem parceiro/NF).
+    linha_parceiro = tabela_row("Parceiro", parceiro, True) if (parceiro or "").strip() else ""
+    linha_numero_nf = tabela_row("Número NF", numero_nota) if (numero_nota or "").strip() else ""
     linha_nu_fin = tabela_row("Nº Único Financeiro", nu_financeiro) if nu_financeiro else ""
     linha_nu_nota = tabela_row("Nº Único da Nota", nu_nota, True) if nu_nota else ""
     linha_atrasos = tabela_row("Atrasos de entregáveis", atrasos) if atrasos else ""
@@ -177,8 +197,8 @@ def email_novo_chamado(email_contabilidade, protocolo, setor, tipo, prioridade, 
                 {tabela_row("Setor", setor)}
                 {tabela_row("Solicitante", solicitante, True)}
                 {tabela_row("Tipo", tipo)}
-                {tabela_row("Parceiro", parceiro, True)}
-                {tabela_row("Número NF", numero_nota)}
+                {linha_parceiro}
+                {linha_numero_nf}
                 {linha_nu_fin}
                 {linha_nu_nota}
                 {linha_atrasos}
