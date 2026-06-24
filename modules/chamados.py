@@ -256,7 +256,7 @@ def _fmt_valor(v):
     except:
         return str(v)
 
-def exibir_chat(protocolo, setor_chamado):
+def exibir_chat(protocolo, setor_chamado, status=None):
     st.markdown("#### 💬 Acompanhamento")
     mensagens = carregar_mensagens(protocolo)
     if not mensagens:
@@ -304,6 +304,18 @@ def exibir_chat(protocolo, setor_chamado):
                     pass
 
     st.markdown("<br>", unsafe_allow_html=True)
+
+    # Chamado encerrado (Resolvido ou Cancelado): mostra o histórico acima,
+    # mas não permite novas mensagens — exibe um aviso no lugar do formulário.
+    if str(status or "") in ("Resolvido", "Cancelado"):
+        st.markdown(
+            f"<div style='background:#f0f0f0;border:1px solid #d9d9d9;border-radius:8px;"
+            f"padding:14px 16px;text-align:center;color:#666;font-size:13px;'>"
+            f"🔒 Este chamado está <strong>{status}</strong> e foi encerrado. "
+            f"Não é possível enviar novas mensagens.</div>",
+            unsafe_allow_html=True)
+        return
+
     with st.form(key=f"chat_{protocolo}", clear_on_submit=True):
         nova_msg = st.text_area("Nova mensagem", placeholder="Digite sua mensagem...", height=80, label_visibility="collapsed")
         img = st.file_uploader("📎 Anexar arquivos (opcional)", type=["png","jpg","jpeg","gif","webp","pdf","xlsx","xls","xml","docx","csv","txt","zip"], accept_multiple_files=True, key=f"chat_img_{protocolo}")
@@ -873,7 +885,7 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
                 st.rerun()
 
         st.markdown("---")
-        exibir_chat(protocolo, setor)
+        exibir_chat(protocolo, setor, status)
 
 def tela_meus_chamados(protocolo_aberto=None):
     st.title("📋 Minhas Solicitações")
