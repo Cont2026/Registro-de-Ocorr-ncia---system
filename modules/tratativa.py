@@ -64,8 +64,20 @@ def fmt_data(valor, com_hora=True):
     return s
 
 def gerar_protocolo():
-    total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
-    return f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-{str(total+1).zfill(4)}"
+    """Gera o próximo protocolo do mês no formato ROC-AAAAMM-XXXX.
+    Em vez de contar todos os chamados (COUNT+1, que colide depois de exclusões),
+    pega o MAIOR número já usado no mês atual e soma 1. Reinicia a cada mês e
+    nunca colide, mesmo que chamados tenham sido apagados."""
+    prefixo = f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-"
+    try:
+        r = run_query(
+            "SELECT MAX(CAST(SUBSTRING(protocolo FROM %s) AS INTEGER)) "
+            "FROM chamados WHERE protocolo LIKE %s",
+            (len(prefixo) + 1, prefixo + "%"), fetch=True)
+        ultimo = r[0][0] if r and r[0] and r[0][0] is not None else 0
+    except:
+        ultimo = 0
+    return f"{prefixo}{str(ultimo + 1).zfill(4)}"
 
 def salvar_copia(protocolo, setor):
     try:
@@ -341,10 +353,10 @@ def tela_tratativa():
     # ===== FLUXO NORMAL (todos os campos da tela do setor) =====
     eh_compra = "compra" in tipo_nota.lower()
     if eh_compra:
-        data_ent = st.date_input("📥 Data da Nota *", value=None, key="trat_data_ent")
+        data_ent = st.date_input("📥 Data da Nota *", value=None, format="DD/MM/YYYY", key="trat_data_ent")
         data_neg = None
     else:
-        data_neg = st.date_input("🤝 Data de Negociação *", value=None, key="trat_data_neg")
+        data_neg = st.date_input("🤝 Data de Negociação *", value=None, format="DD/MM/YYYY", key="trat_data_neg")
         data_ent = None
 
     st.markdown("---")
