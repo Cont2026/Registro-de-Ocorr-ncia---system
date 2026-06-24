@@ -74,6 +74,22 @@ def converter_valor(valor):
     elif "," in v: v = v.replace(",", ".")
     return float(v)
 
+def gerar_protocolo():
+    """Gera o próximo protocolo do mês no formato ROC-AAAAMM-XXXX.
+    Em vez de contar todos os chamados (COUNT+1, que colide depois de exclusões),
+    pega o MAIOR número já usado no mês atual e soma 1. Reinicia a cada mês e
+    nunca colide, mesmo que chamados tenham sido apagados."""
+    prefixo = f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-"
+    try:
+        r = run_query(
+            "SELECT MAX(CAST(SUBSTRING(protocolo FROM %s) AS INTEGER)) "
+            "FROM chamados WHERE protocolo LIKE %s",
+            (len(prefixo) + 1, prefixo + "%"), fetch=True)
+        ultimo = r[0][0] if r and r[0] and r[0][0] is not None else 0
+    except:
+        ultimo = 0
+    return f"{prefixo}{str(ultimo + 1).zfill(4)}"
+
 def chamado_duplicado_recente(empresa, nome_parceiro, numero_nota, valor_float, horas=1):
     """Retorna o protocolo de um chamado idêntico (mesma empresa + parceiro + NF + valor)
     aberto na última 'horas' hora(s), ou None se não houver. Usado apenas no fluxo normal
@@ -309,8 +325,7 @@ def exibir_chat(protocolo, setor_chamado):
 
 def registrar_fechamento(parcial, observacao="", arquivos=None, atrasos="", empresa=""):
     tipo_final = f"{TIPO_FECHAMENTO} - {parcial}"
-    total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
-    protocolo = f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-{str(total+1).zfill(4)}"
+    protocolo = gerar_protocolo()
 
     anexo_dados, anexo_nome = empacotar_anexos(arquivos)
 
@@ -338,8 +353,7 @@ def registrar_fechamento(parcial, observacao="", arquivos=None, atrasos="", empr
     return protocolo
 
 def registrar_folha(empresa, fin_baixado, solicitante, observacao, arquivos=None, tipo_inc=None):
-    total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
-    protocolo = f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-{str(total+1).zfill(4)}"
+    protocolo = gerar_protocolo()
 
     anexo_dados, anexo_nome = empacotar_anexos(arquivos)
 
@@ -683,8 +697,7 @@ def tela_novo_chamado(preview=False, setor_preview=None):
             return
 
         tipo_final = f"Outros: {tipo_outros_desc.strip()}" if tipo == "Outros" else tipo
-        total = run_query("SELECT COUNT(*) FROM chamados", fetch=True)[0][0]
-        protocolo = f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-{str(total+1).zfill(4)}"
+        protocolo = gerar_protocolo()
 
         run_query("""INSERT INTO chamados (protocolo,setor,empresa,tipo_inconsistencia,prioridade,nf_retorna,
             solicitante,nome_parceiro,numero_nota,tipo_nota,data_entrada,data_saida,data_negociacao,
