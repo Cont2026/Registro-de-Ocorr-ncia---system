@@ -93,20 +93,19 @@ def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral"
                     for k in [k for k, v in _bcc_recente.items() if agora - v > 600]:
                         _bcc_recente.pop(k, None)
 
-        if anexos:
-            lista_anexos = []
-            for nome_arquivo, conteudo in anexos:
-                if not conteudo:
-                    continue
-                mime, _ = mimetypes.guess_type(nome_arquivo)
-                lista_anexos.append({
-                    "content": base64.b64encode(conteudo).decode("utf-8"),
-                    "filename": nome_arquivo,
-                    "type": mime or "application/octet-stream",
-                    "disposition": "attachment"
-                })
-            if lista_anexos:
-                dados["attachments"] = lista_anexos
+        # Os anexos NÃO são enviados por e-mail (evita recusa do SendGrid por tamanho
+        # e mantém os e-mails leves). O arquivo continua salvo no sistema; o e-mail
+        # apenas avisa para acessar o chamado e baixar lá, quando houver anexo.
+        if anexos and any(c for (_n, c) in anexos if c):
+            aviso = ("<div style=\"max-width:600px;margin:8px auto 0;padding:12px 16px;"
+                     "background:#F0F4FF;border:1px solid #b9c7f0;border-radius:8px;"
+                     "font-family:Arial,sans-serif;font-size:13px;color:#041747;\">"
+                     "📎 <strong>Este chamado possui anexo(s).</strong> "
+                     "Acesse o chamado no sistema para visualizar e baixar o(s) arquivo(s).</div>")
+            try:
+                dados["content"][0]["value"] = dados["content"][0]["value"] + aviso
+            except:
+                pass
 
         req = urllib.request.Request(
             "https://api.sendgrid.com/v3/mail/send",
