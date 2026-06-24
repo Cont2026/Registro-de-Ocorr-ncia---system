@@ -191,15 +191,19 @@ def buscar_email_setor(setor_nome):
     return rows[0][0] if rows else None
 
 def emails_interessados(protocolo, setor_chamado, excluir_email=None):
-    """Setor dono + setores em cópia, menos quem está enviando.
-    A Contabilidade NÃO entra aqui: ela já recebe cópia (BCC) automática de tudo,
-    1 por assunto, evitando e-mails duplicados."""
+    """Todos os envolvidos no chamado: setor dono + setores em cópia + CONTABILIDADE,
+    menos quem está enviando (excluir_email).
+    Assim, quando um setor manda mensagem a contabilidade é avisada, e quando a
+    contabilidade manda o setor é avisado. Como o e-mail vai com todos juntos
+    (1º no 'Para', os demais em CC), não há duplicação."""
     emails = set()
     es = buscar_email_setor(setor_chamado)
     if es: emails.add(es)
     for s in carregar_copias(protocolo):
         e = buscar_email_setor(s)
         if e: emails.add(e)
+    cont = buscar_email_contabilidade()
+    if cont: emails.add(cont)
     if excluir_email:
         emails.discard(excluir_email)
     return emails
@@ -347,11 +351,8 @@ def registrar_fechamento(parcial, observacao="", arquivos=None, atrasos="", empr
             email_novo_chamado(email_cont, protocolo, st.session_state.setor,
                 tipo_final, "Normal", "", "", st.session_state.usuario, anexos=anexos,
                 atrasos=(atrasos or "").strip())
-        else:
-            st.warning("⚠️ [diagnóstico] E-mail da contabilidade não encontrado no banco (buscar_email_contabilidade retornou vazio).")
-    except Exception as e:
-        # DIAGNÓSTICO TEMPORÁRIO: mostra o erro do envio em vez de engolir.
-        st.error(f"⚠️ [diagnóstico] Falha ao enviar e-mail do entregável: {type(e).__name__}: {e}")
+    except:
+        pass
 
     return protocolo
 
