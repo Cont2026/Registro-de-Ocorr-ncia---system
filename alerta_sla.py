@@ -124,7 +124,7 @@ def email_contabilidade(conn):
 def ja_enviado(conn, chave, destinatario):
     with conn.cursor() as cur:
         cur.execute("""SELECT COUNT(*) FROM notificacoes
-            WHERE protocolo=%s AND destinatario=%s AND sucesso=true""", (chave, destinatario))
+            WHERE protocolo=%s AND destinatario=%s AND sucesso=1""", (chave, destinatario))
         return cur.fetchone()[0] > 0
 
 def registrar(conn, chave, destinatario, assunto, sucesso):
@@ -132,7 +132,7 @@ def registrar(conn, chave, destinatario, assunto, sucesso):
         cur.execute("""INSERT INTO notificacoes (protocolo, destinatario, assunto, tipo, enviado_em, sucesso)
             VALUES (%s,%s,%s,%s,%s,%s)""",
             (chave, destinatario, assunto, "alerta_sla",
-             datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), sucesso))
+             datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), 1 if sucesso else 0))
     conn.commit()
 
 def montar_email(protocolo, setor, horas, nivel):
