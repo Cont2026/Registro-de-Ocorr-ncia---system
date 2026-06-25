@@ -9,6 +9,7 @@ from modules.chamados import empacotar_anexos, desempacotar_anexos, anexos_para_
 BRASILIA = ZoneInfo("America/Sao_Paulo")
 TIPO_FOLHA = "Folha de Pagamento"
 TIPO_FECHAMENTO = "INFORMAR ENTREGÁVEIS"
+TIPO_CONTA70 = "Divergência na conta 70"
 
 def buscar_setores():
     rows = run_query(
@@ -351,13 +352,21 @@ def tela_tratativa():
         return
 
     # ===== FLUXO NORMAL (todos os campos da tela do setor) =====
+    # Se a inconsistência "Divergência na conta 70" já está selecionada, este é um
+    # fluxo reduzido: não mostra a data (nem o restante dos campos do fluxo normal).
+    eh_conta70 = (st.session_state.get("trat_tipo") == TIPO_CONTA70)
+
     eh_compra = "compra" in tipo_nota.lower()
-    if eh_compra:
-        data_ent = st.date_input("📥 Data da Nota *", value=None, format="DD/MM/YYYY", key="trat_data_ent")
-        data_neg = None
+    if not eh_conta70:
+        if eh_compra:
+            data_ent = st.date_input("📥 Data da Nota *", value=None, format="DD/MM/YYYY", key="trat_data_ent")
+            data_neg = None
+        else:
+            data_neg = st.date_input("🤝 Data de Negociação *", value=None, format="DD/MM/YYYY", key="trat_data_neg")
+            data_ent = None
     else:
-        data_neg = st.date_input("🤝 Data de Negociação *", value=None, format="DD/MM/YYYY", key="trat_data_neg")
         data_ent = None
+        data_neg = None
 
     st.markdown("---")
     st.markdown("#### 📋 Tipo de Inconsistencia *")
@@ -376,6 +385,75 @@ def tela_tratativa():
     tipo_outros_desc = ""
     if tipo == "Outros":
         tipo_outros_desc = st.text_area("Descreva a inconsistencia *", key="trat_outros")
+
+    # ===== FLUXO REDUZIDO: Divergência na conta 70 =====
+    # Só aparecem: Empresa (múltipla), Solicitante, Setores em cópia, Anexos e Observação.
+    if tipo == TIPO_CONTA70:
+        st.markdown("#### 🏢 Empresa * (pode marcar mais de uma)")
+        emps_c70 = st.session_state.get("trat_c70_emps", [])
+        cols_c70 = st.columns(5)
+        for i, op in enumerate(["1", "2", "6", "13", "14"]):
+            with cols_c70[i]:
+                ativo = op in emps_c70
+                if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"trat_c70_emp_{i}",
+                    use_container_width=True, type="primary" if ativo else "secondary"):
+                    if ativo:
+                        emps_c70.remove(op)
+                    else:
+                        emps_c70.append(op)
+                    st.session_state["trat_c70_emps"] = emps_c70
+                    st.rerun()
+        empresa_c70 = ", ".join(st.session_state.get("trat_c70_emps", []))
+
+        st.markdown("---")
+        solicitante_c70 = st.text_input("🙋 Nome do Solicitante *", key="trat_c70_solic")
+        copia_c70 = st.multiselect("👥 Setores em cópia (opcional)", nomes_copia, key="trat_c70_copia",
+            help="Esses setores recebem aviso do chamado em cópia.")
+        arq_c70 = st.file_uploader("📎 Anexos *",
+            type=["pdf","png","jpg","jpeg","xlsx","xls","xml","docx","csv","txt","zip"],
+            accept_multiple_files=True, key="trat_c70_arq")
+        obs_c70 = st.text_area("📝 Observação *", placeholder="Descreva a divergência...", key="trat_c70_obs")
+
+        st.markdown("---")
+        if st.button("📨 Abrir Chamado para o Setor", use_container_width=True, key="trat_c70_enviar"):
+            erros = []
+            if not setor_dados: erros.append("Setor responsavel")
+            if not empresa_c70: erros.append("Empresa")
+            if not solicitante_c70.strip(): erros.append("Nome do Solicitante")
+            if not arq_c70: erros.append("Anexo")
+            if not obs_c70.strip(): erros.append("Observação")
+            if erros:
+                st.error(f"Preencha: {', '.join(erros)}")
+                return
+            setor_nome = setor_dados[0]
+            email_setor = setor_dados[1]
+            protocolo = criar_chamado_tratativa(setor_nome, empresa_c70, TIPO_CONTA70, tipo_nota,
+                "", "", "", obs_c70.strip(), "", "", arq_c70, solicitante_c70.strip())
+            try:
+                if email_setor:
+                    _dados, _nomes = empacotar_anexos(arq_c70)
+                    email_novo_chamado(email_setor, protocolo, setor_nome, TIPO_CONTA70, "Normal",
+                        "", "", solicitante_c70.strip(),
+                        anexos=anexos_para_email(desempacotar_anexos(_dados, _nomes)))
+            except:
+                pass
+            for n in copia_c70:
+                em = mapa_email.get(n)
+                if em and em != email_setor:
+                    try:
+                        salvar_copia(protocolo, n)
+                        email_setor_em_copia(em, protocolo, n, setor_nome)
+                    except:
+                        pass
+            for k in ["trat_tipo_nota","trat_tipo","trat_c70_emps","trat_c70_solic",
+                      "trat_c70_copia","trat_c70_arq","trat_c70_obs"]:
+                st.session_state.pop(k, None)
+            st.cache_data.clear()
+            st.success(f"✅ Chamado **{protocolo}** aberto para {setor_nome} (Em andamento).")
+            st.balloons()
+        st.markdown("---")
+        _lista_enviados()
+        return
 
     st.markdown("#### 🏢 Empresa *")
     empresa_sel = st.session_state.get("trat_empresa", None)
