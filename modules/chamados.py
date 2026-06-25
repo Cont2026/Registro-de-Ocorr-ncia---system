@@ -182,6 +182,15 @@ def carregar_todos_chamados():
         nome_parceiro, numero_nota, aberto_em, solicitante, financeiro_baixado
         FROM chamados ORDER BY aberto_em DESC""", fetch=True)
 
+def carregar_anexo_dados(protocolo):
+    """Busca o conteúdo do anexo (pesado) APENAS quando solicitado — não é trazido
+    ao abrir o chamado, para economizar tráfego de rede com o banco."""
+    r = run_query("SELECT anexo_dados, arquivo_nome FROM chamados WHERE protocolo=%s",
+                  (protocolo,), fetch=True)
+    if r and r[0]:
+        return r[0][0], r[0][1]
+    return None, None
+
 def buscar_email_contabilidade():
     rows = run_query("SELECT email FROM usuarios WHERE perfil='contabilidade' AND ativo=1 LIMIT 1", fetch=True)
     return rows[0][0] if rows else None
@@ -786,11 +795,11 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
             st.markdown(f"**👥 Em cópia:** {', '.join(copias)}")
 
         # Observação e anexo (se houver)
-        det = run_query("""SELECT observacao, arquivo_nome, anexo_dados, num_unico_financeiro, num_unico_nota,
+        det = run_query("""SELECT observacao, arquivo_nome, COALESCE(LENGTH(anexo_dados),0), num_unico_financeiro, num_unico_nota,
             atrasos_entregaveis, data_entrada, data_negociacao, nf_retorna, tipo_nota, valor, atendente
             FROM chamados WHERE protocolo=%s""", (protocolo,), fetch=True)
         if det:
-            (obs_txt, arq_nome, arq_dados, nu_fin, nu_nt, atrasos_txt,
+            (obs_txt, arq_nome, anexo_tam, nu_fin, nu_nt, atrasos_txt,
              data_ent, data_neg, nf_ret, tipo_mov, valor_c, atendente_c) = det[0]
 
             if atendente_c:
@@ -814,19 +823,32 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
                 st.markdown(f"**⏰ Atrasos de entregáveis:** {atrasos_txt}")
             if obs_txt:
                 st.markdown(f"**📝 Observação:** {obs_txt}")
-            anexos_ch = desempacotar_anexos(arq_dados, arq_nome)
-            if anexos_ch:
+            # Anexos: para economizar tráfego, anexos GRANDES só são buscados no
+            # banco quando o usuário clica em "Carregar anexo". Anexos pequenos
+            # continuam aparecendo direto com o botão de baixar (1 clique).
+            LIMITE_AUTO = 2_800_000  # ~2 MB de arquivo (em base64). Acima disso, carrega sob demanda.
+            if anexo_tam and anexo_tam > 0:
                 st.markdown("**📎 Anexos:**")
-                for i_an, an in enumerate(anexos_ch):
-                    try:
-                        raw = base64.b64decode(an.get("dados"))
-                        if _eh_imagem(an.get("nome")):
-                            st.image(raw, use_container_width=True, caption=an.get("nome"))
-                        st.download_button("📎 Baixar" + (f" ({an.get('nome')})" if an.get("nome") else ""),
-                            data=raw, file_name=an.get("nome") or f"{protocolo}_anexo_{i_an}",
-                            key=f"dl_{protocolo}_{i_an}")
-                    except:
-                        st.caption(f"📎 {an.get('nome') or 'anexo'} (não foi possível carregar)")
+                chave_load = f"load_anexo_{protocolo}"
+                if anexo_tam <= LIMITE_AUTO or st.session_state.get(chave_load):
+                    arq_dados, arq_nome2 = carregar_anexo_dados(protocolo)
+                    anexos_ch = desempacotar_anexos(arq_dados, arq_nome2 or arq_nome)
+                    for i_an, an in enumerate(anexos_ch):
+                        try:
+                            raw = base64.b64decode(an.get("dados"))
+                            if _eh_imagem(an.get("nome")):
+                                st.image(raw, use_container_width=True, caption=an.get("nome"))
+                            st.download_button("📎 Baixar" + (f" ({an.get('nome')})" if an.get("nome") else ""),
+                                data=raw, file_name=an.get("nome") or f"{protocolo}_anexo_{i_an}",
+                                key=f"dl_{protocolo}_{i_an}")
+                        except:
+                            st.caption(f"📎 {an.get('nome') or 'anexo'} (não foi possível carregar)")
+                else:
+                    tam_mb = (anexo_tam * 0.75) / 1_048_576  # tamanho aprox. do arquivo real
+                    st.caption(f"Este chamado tem anexo de aproximadamente {tam_mb:.0f} MB.")
+                    if st.button(f"📎 Carregar anexo (~{tam_mb:.0f} MB)", key=f"btnload_{protocolo}"):
+                        st.session_state[chave_load] = True
+                        st.rerun()
 
         # Atualizar status (somente contabilidade) — não se aplica a INFORMAR ENTREGÁVEIS,
         # pois é um registro informativo, sem ciclo de validação.
