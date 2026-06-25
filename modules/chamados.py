@@ -217,6 +217,33 @@ def emails_interessados(protocolo, setor_chamado, excluir_email=None):
         emails.discard(excluir_email)
     return emails
 
+def reabrir_chamado(protocolo, setor, responsavel, motivo):
+    """Reabre um chamado encerrado (Resolvido/Cancelado): volta para 'Em andamento',
+    marca como reaberto, soma 1 no contador de reaberturas e guarda responsável,
+    motivo e data. Notifica contabilidade + setores em cópia."""
+    agora = datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S")
+    run_query("""UPDATE chamados
+        SET status='Em andamento', reaberto=1,
+            reaberturas=COALESCE(reaberturas,0)+1,
+            reaberto_por=%s, reaberto_motivo=%s, reaberto_em=%s
+        WHERE protocolo=%s""",
+        (responsavel.strip(), motivo.strip(), agora, protocolo))
+    # Registra a reabertura como uma mensagem no chat, para ficar no histórico.
+    try:
+        enviar_mensagem_db(protocolo, responsavel.strip(),
+            st.session_state.get("perfil", "setor"),
+            f"🔄 Chamado REABERTO por {responsavel.strip()}. Motivo: {motivo.strip()}")
+    except:
+        pass
+    # Notifica contabilidade + setores em cópia (1 e-mail só, com todos juntos).
+    try:
+        destinos = emails_interessados(protocolo, setor, st.session_state.get("email"))
+        if destinos:
+            email_atualizacao_chamado(list(destinos), protocolo, "Em andamento (Reaberto)",
+                setor, atendente=responsavel.strip())
+    except:
+        pass
+
 def carregar_mensagens(protocolo):
     return run_query("SELECT autor, perfil, mensagem, enviado_em, anexo_nome, anexo_dados FROM mensagens WHERE chamado_protocolo=%s ORDER BY enviado_em ASC", (protocolo,), fetch=True)
 
@@ -796,11 +823,24 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
 
         # Observação e anexo (se houver)
         det = run_query("""SELECT observacao, arquivo_nome, COALESCE(LENGTH(anexo_dados),0), num_unico_financeiro, num_unico_nota,
-            atrasos_entregaveis, data_entrada, data_negociacao, nf_retorna, tipo_nota, valor, atendente
+            atrasos_entregaveis, data_entrada, data_negociacao, nf_retorna, tipo_nota, valor, atendente,
+            COALESCE(reaberto,0), COALESCE(reaberturas,0), reaberto_por, reaberto_motivo, reaberto_em
             FROM chamados WHERE protocolo=%s""", (protocolo,), fetch=True)
         if det:
             (obs_txt, arq_nome, anexo_tam, nu_fin, nu_nt, atrasos_txt,
-             data_ent, data_neg, nf_ret, tipo_mov, valor_c, atendente_c) = det[0]
+             data_ent, data_neg, nf_ret, tipo_mov, valor_c, atendente_c,
+             reaberto_c, reaberturas_c, reaberto_por_c, reaberto_motivo_c, reaberto_em_c) = det[0]
+
+            if reaberto_c:
+                st.markdown(
+                    f"<div style='background:#FFF4E5;border:1px solid #F0B86E;border-radius:8px;"
+                    f"padding:8px 12px;margin-bottom:8px;color:#8a5a00;font-size:13px;'>"
+                    f"🔄 <strong>Chamado reaberto</strong>"
+                    + (f" {reaberturas_c}x" if reaberturas_c and reaberturas_c > 1 else "")
+                    + (f" · por {reaberto_por_c}" if reaberto_por_c else "")
+                    + (f" em {fmt_data(reaberto_em_c)}" if reaberto_em_c else "")
+                    + (f"<br>Motivo: {reaberto_motivo_c}" if reaberto_motivo_c else "")
+                    + "</div>", unsafe_allow_html=True)
 
             if atendente_c:
                 st.markdown(f"**🙋 Atendente da solicitação:** {atendente_c}")
@@ -905,6 +945,25 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
                 st.cache_data.clear()
                 st.success("✅ Cópia atualizada!")
                 st.rerun()
+
+        # Reabrir chamado: disponível para qualquer um (setor e contabilidade)
+        # quando o chamado está Resolvido ou Cancelado. Gera retrabalho (conta no dashboard).
+        if status in ("Resolvido", "Cancelado") and not eh_entregaveis:
+            st.markdown("---")
+            with st.expander("🔄 Reabrir este chamado"):
+                st.caption("Use quando o problema voltou ou não foi resolvido. O chamado volta para "
+                           "'Em andamento' e a reabertura fica registrada.")
+                resp_reab = st.text_input("🙋 Nome do responsável pela reabertura *", key=f"reab_resp_{protocolo}")
+                motivo_reab = st.text_area("📝 Motivo da reabertura *", key=f"reab_motivo_{protocolo}",
+                    placeholder="Explique por que o chamado precisa ser reaberto...")
+                if st.button("🔄 Confirmar reabertura", key=f"reab_btn_{protocolo}", use_container_width=True):
+                    if not resp_reab.strip() or not motivo_reab.strip():
+                        st.warning("⚠️ Preencha o responsável e o motivo da reabertura.")
+                    else:
+                        reabrir_chamado(protocolo, setor, resp_reab, motivo_reab)
+                        st.cache_data.clear()
+                        st.success("✅ Chamado reaberto e enviado para Em andamento.")
+                        st.rerun()
 
         st.markdown("---")
         exibir_chat(protocolo, setor, status)
