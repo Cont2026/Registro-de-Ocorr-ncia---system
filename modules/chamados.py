@@ -13,6 +13,7 @@ BRASILIA = ZoneInfo("America/Sao_Paulo")
 
 TIPO_FECHAMENTO = "INFORMAR ENTREGÁVEIS"
 TIPO_FOLHA = "Folha de Pagamento"
+TIPO_CONTA70 = "Divergência na conta 70"
 
 def empacotar_anexos(arquivos):
     """Recebe 1 ou vários arquivos enviados e devolve (json_dados, nomes) para salvar no banco."""
@@ -430,6 +431,34 @@ def registrar_folha(empresa, fin_baixado, solicitante, observacao, arquivos=None
 
     return protocolo
 
+def registrar_conta70(empresa, solicitante, observacao, arquivos=None, tipo_nota_mov=""):
+    """Fluxo reduzido para a inconsistência 'Divergência na conta 70':
+    guarda só empresa (pode ser várias), solicitante, observação e anexos."""
+    protocolo = gerar_protocolo()
+
+    anexo_dados, anexo_nome = empacotar_anexos(arquivos)
+
+    run_query("""INSERT INTO chamados (protocolo,setor,empresa,tipo_inconsistencia,prioridade,nf_retorna,
+        solicitante,nome_parceiro,numero_nota,tipo_nota,data_entrada,data_saida,data_negociacao,
+        valor,observacao,arquivo_nome,status,aberto_em,financeiro_baixado,anexo_dados)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+        (protocolo, st.session_state.setor, empresa or "", TIPO_CONTA70, "Normal", "",
+         solicitante, "", "", tipo_nota_mov or "",
+         None, None, None,
+         0, (observacao or "").strip(), anexo_nome, "Aberto",
+         datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), "", anexo_dados))
+
+    try:
+        email_cont = buscar_email_contabilidade()
+        if email_cont:
+            anexos = anexos_para_email(desempacotar_anexos(anexo_dados, anexo_nome))
+            email_novo_chamado(email_cont, protocolo, st.session_state.setor,
+                TIPO_CONTA70, "Normal", "", "", solicitante, anexos=anexos)
+    except:
+        pass
+
+    return protocolo
+
 def tela_novo_chamado(preview=False, setor_preview=None):
     setor_atual = setor_preview if (preview and setor_preview) else st.session_state.get("setor")
     st.title("➕ Novo Chamado")
@@ -613,13 +642,21 @@ def tela_novo_chamado(preview=False, setor_preview=None):
         return
 
     # === FLUXO NORMAL ===
+    # Se a inconsistência "Divergência na conta 70" já está selecionada, este é um
+    # fluxo reduzido: não mostra a data (nem o restante dos campos do fluxo normal).
+    eh_conta70 = (st.session_state.get("sel_tipo") == TIPO_CONTA70)
+
     eh_compra = "compra" in tipo_nota.lower()
-    if eh_compra:
-        data_entrada = st.date_input("📥 Data da Nota *", value=None, format="DD/MM/YYYY", key="data_entrada")
-        data_negociacao = None
+    if not eh_conta70:
+        if eh_compra:
+            data_entrada = st.date_input("📥 Data da Nota *", value=None, format="DD/MM/YYYY", key="data_entrada")
+            data_negociacao = None
+        else:
+            data_negociacao = st.date_input("🤝 Data de Negociação *", value=None, format="DD/MM/YYYY", key="data_negociacao")
+            data_entrada = None
     else:
-        data_negociacao = st.date_input("🤝 Data de Negociação *", value=None, format="DD/MM/YYYY", key="data_negociacao")
         data_entrada = None
+        data_negociacao = None
 
     st.markdown("---")
     st.markdown("#### 📋 Abertura de Período / Descontabilização *")
@@ -637,6 +674,67 @@ def tela_novo_chamado(preview=False, setor_preview=None):
     tipo_outros_desc = ""
     if tipo == "Outros":
         tipo_outros_desc = st.text_area("📝 Descreva a solicitação *", placeholder="Descreva detalhadamente...", key="outros_desc")
+
+    # === FLUXO REDUZIDO: Divergência na conta 70 ===
+    # Só aparecem: Empresa (múltipla), Solicitante, Setores em cópia, Anexos e Observação.
+    if tipo == TIPO_CONTA70:
+        st.markdown("---")
+        st.markdown("#### 🏢 Empresa * (pode marcar mais de uma)")
+        emps_c70 = st.session_state.get("c70_empresas", [])
+        cols_c70 = st.columns(5)
+        for i, op in enumerate(["1", "2", "6", "13", "14"]):
+            with cols_c70[i]:
+                ativo = op in emps_c70
+                if st.button(f"{'✓ ' if ativo else ''}{op}", key=f"c70_emp_{i}",
+                    use_container_width=True, type="primary" if ativo else "secondary"):
+                    if ativo:
+                        emps_c70.remove(op)
+                    else:
+                        emps_c70.append(op)
+                    st.session_state["c70_empresas"] = emps_c70
+                    st.rerun()
+        empresa_c70 = ", ".join(st.session_state.get("c70_empresas", []))
+
+        st.markdown("---")
+        solicitante_c70 = st.text_input("🙋 Nome do Solicitante *", key="c70_solic")
+        copia_c70 = st.multiselect("👥 Setores em cópia (opcional)",
+            carregar_setores_disponiveis(setor_atual), key="c70_copia")
+        arq_c70 = st.file_uploader("📎 Anexos *",
+            type=["pdf","png","jpg","jpeg","xlsx","xls","xml","docx","csv","txt","zip"],
+            accept_multiple_files=True, key="c70_arquivo")
+        obs_c70 = st.text_area("📝 Observação *", placeholder="Descreva a divergência...", key="c70_obs")
+
+        st.markdown("---")
+        if st.button("📨 Enviar Chamado", use_container_width=True, key="enviar_c70"):
+            if preview:
+                st.info("👁️ Modo visualização: nenhum chamado foi criado.")
+                return
+            erros = []
+            if not empresa_c70: erros.append("Empresa")
+            if not solicitante_c70.strip(): erros.append("Nome do Solicitante")
+            if not arq_c70: erros.append("Anexo")
+            if not obs_c70.strip(): erros.append("Observação")
+            if erros:
+                st.error(f"⚠️ Preencha: {', '.join(erros)}")
+                return
+            protocolo = registrar_conta70(empresa_c70, solicitante_c70.strip(),
+                obs_c70.strip(), arq_c70, tipo_nota_mov=tipo_nota)
+            if copia_c70:
+                salvar_copias(protocolo, copia_c70)
+                for s in copia_c70:
+                    try:
+                        email_s = buscar_email_setor(s)
+                        if email_s:
+                            email_setor_em_copia(email_s, protocolo, s, setor_atual)
+                    except:
+                        pass
+            for k in ["sel_tipo_nota", "sel_tipo", "c70_empresas", "c70_solic",
+                      "c70_copia", "c70_arquivo", "c70_obs"]:
+                st.session_state.pop(k, None)
+            st.cache_data.clear()
+            st.success(f"✅ Chamado registrado! Protocolo: **{protocolo}**")
+            st.balloons()
+        return
 
     st.markdown("---")
     st.markdown("#### 🏢 Empresa *")
