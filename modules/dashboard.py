@@ -56,7 +56,8 @@ BORDER = Border(
 def carregar_chamados():
     return run_query("""
         SELECT protocolo, setor, empresa, tipo_inconsistencia,
-               prioridade, status, aberto_em, atendido_em, resolvido_em
+               prioridade, status, aberto_em, atendido_em, resolvido_em,
+               COALESCE(reaberturas,0)
         FROM chamados ORDER BY aberto_em DESC
     """, fetch=True)
 
@@ -115,9 +116,10 @@ def inserir_cabecalho_relatorio(ws, titulo):
     ws["E3"].font = Font(name="Calibri", size=10, color="999999")
 
 def montar_performance(df_filtrado):
-    """Conta chamados (erros) por setor, excluindo fechamentos de período, e classifica."""
+    """Conta chamados (erros) por setor, excluindo fechamentos de período, e classifica.
+    Usa o 'peso' (1 + reaberturas): um chamado reaberto conta como 2, pois gerou retrabalho."""
     df_err = df_filtrado[~df_filtrado["tipo"].astype(str).str.startswith(PREFIXO_FECHAMENTO)]
-    base = df_err.groupby("setor").size().reset_index(name="qtd")
+    base = df_err.groupby("setor")["peso"].sum().reset_index(name="qtd")
     regs = []
     for _, r in base.iterrows():
         nivel, indice, diag = classificar_performance(int(r["qtd"]))
@@ -228,8 +230,12 @@ def tela_dashboard():
 
     df = pd.DataFrame(rows, columns=[
         "protocolo","setor","empresa","tipo",
-        "prioridade","status","aberto_em","atendido_em","resolvido_em"
+        "prioridade","status","aberto_em","atendido_em","resolvido_em","reaberturas"
     ])
+    df["reaberturas"] = pd.to_numeric(df["reaberturas"], errors="coerce").fillna(0).astype(int)
+    # 'peso' = quantas vezes o chamado conta no total. Cada reabertura é um retrabalho,
+    # então um chamado reaberto 1x conta como 2 (original + retrabalho).
+    df["peso"] = 1 + df["reaberturas"]
     df["aberto_em"] = pd.to_datetime(df["aberto_em"])
     df["resolvido_em"] = pd.to_datetime(df["resolvido_em"])
     df["tempo_resolucao"] = (df["resolvido_em"] - df["aberto_em"]).dt.total_seconds() / 3600
@@ -260,36 +266,41 @@ def tela_dashboard():
 
     st.markdown("---")
     st.markdown("#### 📈 Indicadores")
-    k1, k2, k3, k4, k5 = st.columns(5)
+    k1, k2, k3, k4, k5, k6 = st.columns(6)
     total = len(df_f)
     abertos = len(df_f[df_f["status"] == "Aberto"])
     em_andamento = len(df_f[df_f["status"] == "Em andamento"])
     resolvidos = len(df_f[df_f["status"] == "Resolvido"])
+    retrabalho = int(df_f["reaberturas"].sum())
     tempo_medio = df_f[df_f["tempo_resolucao"].notna()]["tempo_resolucao"].mean()
     k1.metric("Total", total)
     k2.metric("🔴 Abertos", abertos)
     k3.metric("🟡 Em andamento", em_andamento)
     k4.metric("🟢 Resolvidos", resolvidos)
-    k5.metric("⏱️ Tempo médio", f"{tempo_medio:.1f}h" if not pd.isna(tempo_medio) else "—")
+    k5.metric("🔄 Retrabalho", retrabalho, help="Total de reaberturas no período (cada uma conta como retrabalho).")
+    k6.metric("⏱️ Tempo médio", f"{tempo_medio:.1f}h" if not pd.isna(tempo_medio) else "—")
 
     st.markdown("---")
     ca, cb = st.columns(2)
     with ca:
         st.markdown("##### Chamados por Tipo")
-        df_t = df_f.groupby("tipo").size().reset_index(name="qtd").sort_values("qtd", ascending=False)
+        st.caption("Inclui o retrabalho: chamados reabertos contam como 2.")
+        df_t = df_f.groupby("tipo")["peso"].sum().reset_index(name="qtd").sort_values("qtd", ascending=False)
         fig1 = px.bar(df_t, x="qtd", y="tipo", orientation="h", color="qtd", color_continuous_scale="Blues", labels={"qtd":"Qtd","tipo":""})
         fig1.update_layout(showlegend=False, coloraxis_showscale=False, margin=dict(l=0,r=0,t=0,b=0), height=300)
         st.plotly_chart(fig1, use_container_width=True)
     with cb:
         st.markdown("##### Chamados por Setor")
-        df_s = df_f.groupby("setor").size().reset_index(name="qtd").sort_values("qtd", ascending=False)
+        st.caption("Inclui o retrabalho: chamados reabertos contam como 2.")
+        df_s = df_f.groupby("setor")["peso"].sum().reset_index(name="qtd").sort_values("qtd", ascending=False)
         fig2 = px.bar(df_s, x="qtd", y="setor", orientation="h", color="qtd", color_continuous_scale="Greens", labels={"qtd":"Qtd","setor":""})
         fig2.update_layout(showlegend=False, coloraxis_showscale=False, margin=dict(l=0,r=0,t=0,b=0), height=300)
         st.plotly_chart(fig2, use_container_width=True)
 
     # === Performance por Setor (régua de erros) ===
     st.markdown("##### 🎯 Performance por Setor")
-    st.caption("Baseada na quantidade de chamados (erros) por setor. Fechamentos de período não entram na contagem.")
+    st.caption("Baseada na quantidade de chamados (erros) por setor. Chamados reabertos contam como 2 (retrabalho). "
+               "Fechamentos de período não entram na contagem.")
     df_perf = montar_performance(df_f)
     if df_perf.empty:
         st.info("Sem chamados para classificar no período selecionado.")
