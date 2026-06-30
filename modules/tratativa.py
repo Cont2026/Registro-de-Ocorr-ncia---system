@@ -214,7 +214,7 @@ def tela_tratativa():
             help="Esses setores recebem aviso do chamado em cópia.")
         obs_fe = st.text_area("📝 Observação (opcional)", placeholder="Informações adicionais sobre a entrega...", key="trat_fech_obs")
         atrasos_fe = st.text_area("⏰ Atrasos de entregáveis (opcional)", placeholder="Descreva eventuais atrasos de entregáveis...", key="trat_fech_atrasos")
-        arq_fe = st.file_uploader("📎 Anexar documentos (opcional)", type=["pdf","png","jpg","jpeg","xlsx","xml","docx","zip"], accept_multiple_files=True, key="trat_fech_arq")
+        arq_fe = st.file_uploader("📎 Anexar documentos (opcional)", type=["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"], accept_multiple_files=True, key="trat_fech_arq")
 
         st.markdown("---")
         if st.button("📨 Abrir Chamado para o Setor", use_container_width=True, key="trat_fech_enviar"):
@@ -303,7 +303,7 @@ def tela_tratativa():
         solicitante_f = st.text_input("👤 Nome do Solicitante *", key="trat_folha_solic")
         copia_f = st.multiselect("👥 Setores em cópia (opcional)", nomes_copia, key="trat_folha_copia",
             help="Esses setores recebem aviso do chamado em cópia.")
-        arq_f = st.file_uploader("📎 Anexos *", type=["pdf","png","jpg","jpeg","xlsx","xml","docx","zip"], accept_multiple_files=True, key="trat_folha_arq")
+        arq_f = st.file_uploader("📎 Anexos *", type=["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"], accept_multiple_files=True, key="trat_folha_arq")
         obs_f = st.text_area("📝 Observacao *", placeholder="Descreva a solicitação...", key="trat_folha_obs")
 
         st.markdown("---")
@@ -410,7 +410,7 @@ def tela_tratativa():
         copia_c70 = st.multiselect("👥 Setores em cópia (opcional)", nomes_copia, key="trat_c70_copia",
             help="Esses setores recebem aviso do chamado em cópia.")
         arq_c70 = st.file_uploader("📎 Anexos *",
-            type=["pdf","png","jpg","jpeg","xlsx","xls","xml","docx","csv","txt","zip"],
+            type=["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"],
             accept_multiple_files=True, key="trat_c70_arq")
         obs_c70 = st.text_area("📝 Observação *", placeholder="Descreva a divergência...", key="trat_c70_obs")
 
@@ -519,7 +519,7 @@ def tela_tratativa():
             nu_nota = st.text_input("🔢 NU Nota (opcional)")
         copia_sel = st.multiselect("👥 Setores em cópia (opcional)", nomes_copia,
             help="Esses setores recebem aviso do chamado em cópia.")
-        arquivo = st.file_uploader("📎 Anexos (opcional)", type=["pdf","png","jpg","jpeg","xlsx","xml","docx","csv","txt","zip"], accept_multiple_files=True)
+        arquivo = st.file_uploader("📎 Anexos (opcional)", type=["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"], accept_multiple_files=True)
         observacao = st.text_area("📝 Observacao para o setor *",
             placeholder="Descreva a inconsistencia identificada e o que o setor deve fazer...")
         enviar = st.form_submit_button("📨 Abrir Chamado para o Setor", use_container_width=True)
