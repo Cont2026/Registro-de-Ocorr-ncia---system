@@ -36,15 +36,22 @@ def get_conn():
 
 
 def _executar(sql, params, fetch):
-    """Executa 1 query usando uma conexão emprestada do pool e a devolve no fim."""
+    """Executa 1 query usando uma conexão emprestada do pool e a devolve no fim.
+    Se a conexão estiver quebrada (Neon derrubou por ociosidade), ela é DESCARTADA
+    do pool em vez de devolvida — assim não volta a circular como conexão fantasma."""
     p = get_pool()
     conn = p.getconn()
+    quebrada = False
     try:
         with conn.cursor() as cur:
             cur.execute(sql, params or ())
             rows = cur.fetchall() if fetch else None
         conn.commit()  # encerra a transação (evita "idle in transaction" na conexão reaproveitada)
         return rows
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        # Conexão morta/quebrada: marca para ser descartada (não devolvida ao pool).
+        quebrada = True
+        raise
     except Exception:
         try:
             conn.rollback()
@@ -53,24 +60,35 @@ def _executar(sql, params, fetch):
         raise
     finally:
         try:
-            p.putconn(conn)
+            # close=True descarta de vez a conexão quebrada; caso contrário, devolve ao pool.
+            p.putconn(conn, close=quebrada)
         except Exception:
             pass
 
 
 def run_query(sql, params=None, fetch=False):
     """Executa uma query reaproveitando conexões do pool.
-    Se o Neon tiver derrubado as conexões ociosas, recria o pool e tenta 1x mais."""
+    Se o Neon tiver derrubado as conexões ociosas, recria o pool e tenta novamente.
+    Faz até 2 novas tentativas, pois pode haver mais de uma conexão fantasma no pool."""
     try:
         return _executar(sql, params, fetch)
     except (psycopg2.OperationalError, psycopg2.InterfaceError, pgpool.PoolError):
-        # Conexões mortas/ociosas: descarta o pool inteiro e reconstrói.
-        try:
-            get_pool().closeall()
-        except Exception:
-            pass
-        get_pool.clear()
-        return _executar(sql, params, fetch)
+        ultimo_erro = None
+        for _ in range(2):
+            # Conexões mortas/ociosas: descarta o pool inteiro e reconstrói.
+            try:
+                get_pool().closeall()
+            except Exception:
+                pass
+            get_pool.clear()
+            try:
+                return _executar(sql, params, fetch)
+            except (psycopg2.OperationalError, psycopg2.InterfaceError, pgpool.PoolError) as e:
+                ultimo_erro = e
+                continue
+        # Se ainda falhar após as tentativas, propaga o último erro.
+        if ultimo_erro:
+            raise ultimo_erro
 
 
 def init_db():
