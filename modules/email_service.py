@@ -310,3 +310,61 @@ def email_setor_em_copia(email_setor, protocolo, setor, aberto_por=""):
     </div>
     """
     return enviar_email(email_setor, assunto, corpo, protocolo, "copia_chamado", copiar_contabilidade=False)
+
+def email_troca_setor(email_novo, email_antigo, protocolo, setor_novo, setor_antigo):
+    """Avisa, em e-mails separados, o NOVO setor (que recebeu o chamado) e o
+    ANTIGO setor (que deixou de ser responsável), deixando claro que houve
+    transferência de responsabilidade. Modelo no padrão visual do ROC."""
+    ok = True
+
+    # E-mail para o NOVO setor responsável
+    if email_novo:
+        assunto_n = f"ROC — Chamado {protocolo} transferido para o seu setor"
+        corpo_n = f"""
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;padding:20px;border-radius:12px;">
+            {cabecalho_email()}
+            <div style="background:white;padding:24px;border-radius:0 0 8px 8px;border:1px solid #e8e8e8;">
+                <h2 style="color:#041747;font-size:18px;margin:0 0 8px;">🔄 Chamado transferido para o seu setor</h2>
+                <p style="color:#555;font-size:14px;margin:0 0 16px;">
+                Este chamado passou a ser de <strong>responsabilidade do setor {setor_novo}</strong>.
+                Ele estava com o setor <strong>{setor_antigo}</strong> e foi transferido para vocês.
+                Acesse o sistema para visualizar os detalhes e dar andamento.</p>
+                <table style="width:100%;border-collapse:collapse;">
+                    {tabela_row("Protocolo", protocolo, True)}
+                    {tabela_row("Novo setor responsável", setor_novo)}
+                    {tabela_row("Setor anterior", setor_antigo, True)}
+                    {tabela_row("Data da transferência", datetime.now(BRASILIA).strftime("%d/%m/%Y às %H:%M"))}
+                </table>
+                {botao_chamado(protocolo)}
+            </div>
+            {rodape_email()}
+        </div>
+        """
+        ok = enviar_email(email_novo, assunto_n, corpo_n, protocolo, "troca_setor")
+
+    # E-mail para o setor ANTIGO (que deixou de ser responsável)
+    if email_antigo and (email_antigo or "").strip().lower() != (email_novo or "").strip().lower():
+        assunto_a = f"ROC — Chamado {protocolo} transferido para outro setor"
+        corpo_a = f"""
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;padding:20px;border-radius:12px;">
+            {cabecalho_email()}
+            <div style="background:white;padding:24px;border-radius:0 0 8px 8px;border:1px solid #e8e8e8;">
+                <h2 style="color:#041747;font-size:18px;margin:0 0 8px;">🔄 Chamado transferido para outro setor</h2>
+                <p style="color:#555;font-size:14px;margin:0 0 16px;">
+                Este chamado <strong>não está mais sob a responsabilidade do setor {setor_antigo}</strong>.
+                Ele foi transferido para o setor <strong>{setor_novo}</strong>, que passa a ser o responsável
+                por dar andamento.</p>
+                <table style="width:100%;border-collapse:collapse;">
+                    {tabela_row("Protocolo", protocolo, True)}
+                    {tabela_row("Transferido para", setor_novo)}
+                    {tabela_row("Setor anterior", setor_antigo, True)}
+                    {tabela_row("Data da transferência", datetime.now(BRASILIA).strftime("%d/%m/%Y às %H:%M"))}
+                </table>
+                {botao_chamado(protocolo)}
+            </div>
+            {rodape_email()}
+        </div>
+        """
+        ok = enviar_email(email_antigo, assunto_a, corpo_a, protocolo, "troca_setor")
+
+    return ok
