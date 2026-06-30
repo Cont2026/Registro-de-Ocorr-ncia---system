@@ -1,5 +1,6 @@
 import streamlit as st
 from database.connection import run_query
+from modules.email_service import email_troca_setor
 
 def tela_admin():
     st.title("⚙️ Administracao")
@@ -233,6 +234,91 @@ def tela_admin():
                 """, unsafe_allow_html=True)
 
     with aba[4]:
+        st.subheader("🔄 Trocar Setor Responsável")
+        st.markdown("Transfere um chamado **ativo** (Aberto ou Em andamento) para outro setor responsável. "
+                    "O novo setor e o setor anterior são avisados por e-mail. "
+                    "Use quando a pendência for, na verdade, de outro setor.")
+        st.markdown("---")
+
+        # Setores ativos disponíveis para receber o chamado
+        setores_ativos = run_query("""SELECT DISTINCT setor_nome FROM usuarios
+            WHERE perfil='setor' AND ativo=1 AND setor_nome IS NOT NULL AND setor_nome <> ''
+            ORDER BY setor_nome""", fetch=True)
+        lista_setores = [s[0] for s in setores_ativos] if setores_ativos else []
+
+        ativos = run_query("""SELECT protocolo, setor, tipo_inconsistencia, empresa, status,
+            nome_parceiro, numero_nota, aberto_em
+            FROM chamados WHERE status IN ('Aberto','Em andamento') ORDER BY aberto_em DESC""", fetch=True)
+
+        if not ativos:
+            st.info("Não há chamados ativos (Aberto/Em andamento) para transferir.")
+        elif not lista_setores:
+            st.warning("Nenhum setor ativo cadastrado para receber a transferência.")
+        else:
+            busca_t = st.text_input("🔎 Buscar chamado (protocolo, setor, parceiro ou NF)", key="busca_troca",
+                placeholder="ex: ROC-202606-0011 ou MKM")
+            termo_t = (busca_t or "").strip().lower()
+            mostrados_t = 0
+            for (protocolo, setor, tipo_inc, empresa, status, parceiro, nf, aberto_em) in ativos:
+                if termo_t:
+                    alvo = " ".join(str(x or "").lower() for x in [protocolo, setor, tipo_inc, empresa, status, parceiro, nf])
+                    if termo_t not in alvo:
+                        continue
+                mostrados_t += 1
+
+                st.markdown(f"**{protocolo}** — {parceiro or '—'} · NF: {nf or '—'} · "
+                            f"Setor atual: **{setor}** · _{status}_")
+                ct1, ct2 = st.columns([3, 1])
+                with ct1:
+                    opcoes_destino = [s for s in lista_setores if s != setor]
+                    novo_setor = st.selectbox("Novo setor responsável", opcoes_destino,
+                        key=f"troca_dest_{protocolo}", label_visibility="collapsed")
+                with ct2:
+                    if st.button("🔄 Transferir", key=f"troca_btn_{protocolo}", use_container_width=True):
+                        st.session_state["confirmar_troca"] = protocolo
+                        st.session_state["troca_destino_sel"] = novo_setor
+                        st.rerun()
+
+                if st.session_state.get("confirmar_troca") == protocolo:
+                    destino = st.session_state.get("troca_destino_sel")
+                    st.warning(f"⚠️ Transferir **{protocolo}** de **{setor}** para **{destino}**? "
+                               "Os dois setores serão avisados por e-mail.")
+                    cct1, cct2 = st.columns(2)
+                    with cct1:
+                        if st.button("Sim, transferir", key=f"troca_sim_{protocolo}",
+                                     use_container_width=True, type="primary"):
+                            try:
+                                # E-mails dos setores antigo e novo (antes de alterar)
+                                e_novo = run_query("SELECT email FROM usuarios WHERE setor_nome=%s AND ativo=1 LIMIT 1",
+                                                   (destino,), fetch=True)
+                                e_antigo = run_query("SELECT email FROM usuarios WHERE setor_nome=%s AND ativo=1 LIMIT 1",
+                                                     (setor,), fetch=True)
+                                email_novo = e_novo[0][0] if e_novo and e_novo[0] else None
+                                email_antigo = e_antigo[0][0] if e_antigo and e_antigo[0] else None
+                                # Troca o setor responsável
+                                run_query("UPDATE chamados SET setor=%s WHERE protocolo=%s", (destino, protocolo))
+                                # Avisa novo e antigo setor
+                                try:
+                                    email_troca_setor(email_novo, email_antigo, protocolo, destino, setor)
+                                except:
+                                    pass
+                                st.session_state["confirmar_troca"] = None
+                                st.cache_data.clear()
+                                st.success(f"✅ {protocolo} transferido para {destino}. Setores avisados por e-mail.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Não foi possível transferir: {e}")
+                    with cct2:
+                        if st.button("Cancelar", key=f"troca_nao_{protocolo}", use_container_width=True):
+                            st.session_state["confirmar_troca"] = None
+                            st.rerun()
+
+                st.markdown("<hr style='margin:6px 0;border:none;border-top:1px solid #eee;'>", unsafe_allow_html=True)
+
+            if termo_t and mostrados_t == 0:
+                st.info("Nenhum chamado ativo encontrado para essa busca.")
+
+        st.markdown("---")
         st.subheader("🗑️ Excluir Chamados")
         st.markdown("Exclua chamados (por exemplo, duplicados). A exclusão é **permanente** e remove também "
                     "as mensagens, cópias e notificações ligadas ao chamado. O número do protocolo excluído "
