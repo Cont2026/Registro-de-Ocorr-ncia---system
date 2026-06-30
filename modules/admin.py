@@ -5,7 +5,7 @@ from modules.email_service import email_troca_setor
 def tela_admin():
     st.title("⚙️ Administracao")
     st.markdown("---")
-    aba = st.tabs(["👥 Setores", "📋 Tipos de Inconsistencia", "🗂️ Tipos de Movimentacao", "📧 Notificacoes", "🗑️ Excluir Chamados", "📦 Exportar e Limpar", "👁️ Visualizar Tela do Setor"])
+    aba = st.tabs(["👥 Setores", "📋 Tipos de Inconsistencia", "🗂️ Tipos de Movimentacao", "📧 Notificacoes", "🛠️ Gestão de Chamados", "📦 Exportar e Limpar", "👁️ Visualizar Tela do Setor"])
 
     with aba[0]:
         st.subheader("Setores cadastrados")
