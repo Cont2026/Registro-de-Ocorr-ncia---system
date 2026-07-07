@@ -32,23 +32,25 @@ def tela_admin():
 
         st.markdown("---")
         st.subheader("➕ Novo Setor")
+        st.caption("O setor é criado com a senha padrão **roc2026**. No primeiro acesso, ele será "
+                   "obrigado a trocar por uma senha pessoal.")
         with st.form("form_setor"):
-            c1, c2, c3 = st.columns(3)
+            c1, c2 = st.columns(2)
             novo_nome = c1.text_input("Nome do Setor *", placeholder="ex: Fiscal")
             novo_email_s = c2.text_input("E-mail *", placeholder="fiscal@grupolle.com.br")
-            nova_senha_s = c3.text_input("Senha *", placeholder="ex: Fiscal@2026")
             if st.form_submit_button("➕ Adicionar Setor", use_container_width=True):
-                if not novo_nome.strip() or not novo_email_s.strip() or not nova_senha_s.strip():
+                if not novo_nome.strip() or not novo_email_s.strip():
                     st.error("Preencha todos os campos.")
                 elif not novo_email_s.strip().endswith("@grupolle.com.br"):
                     st.error("Use e-mail @grupolle.com.br")
                 else:
                     try:
                         run_query("""INSERT INTO usuarios (nome, email, login, senha, perfil, setor_nome, ativo, primeiro_acesso)
-                            VALUES (%s, %s, %s, %s, 'setor', %s, 1, 0)""",
+                            VALUES (%s, %s, %s, %s, 'setor', %s, 1, 1)""",
                             (novo_nome.strip(), novo_email_s.strip().lower(),
-                             novo_email_s.strip().lower(), nova_senha_s.strip(), novo_nome.strip()))
-                        st.success(f"✅ Setor '{novo_nome}' criado!")
+                             novo_email_s.strip().lower(), "roc2026", novo_nome.strip()))
+                        st.success(f"✅ Setor '{novo_nome}' criado com a senha padrão **roc2026**. "
+                                   "Ele terá que trocá-la no primeiro acesso.")
                         st.rerun()
                     except:
                         st.error("E-mail ja existe.")
