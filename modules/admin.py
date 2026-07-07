@@ -16,19 +16,21 @@ def tela_admin():
             with st.expander(f"{status_icon} {nome} — {email or '—'}"):
                 c1, c2 = st.columns(2)
                 novo_email = c1.text_input("E-mail do setor", value=email or "", key=f"email_{uid}", placeholder="setor@grupolle.com.br")
-                nova_senha = c2.text_input("Nova senha", key=f"s_{uid}", placeholder="Deixe em branco para nao alterar")
-                novo_ativo = st.selectbox("Status", [1, 0], index=0 if ativo else 1,
+                novo_ativo = c2.selectbox("Status", [1, 0], index=0 if ativo else 1,
                     format_func=lambda x: "Ativo" if x == 1 else "Inativo", key=f"a_{uid}")
-                if st.button("💾 Salvar", key=f"u_{uid}"):
-                    if nova_senha.strip():
-                        run_query("UPDATE usuarios SET email=%s, senha=%s, ativo=%s, primeiro_acesso=1 WHERE id=%s",
-                            (novo_email.strip().lower(), nova_senha.strip(), novo_ativo, uid))
-                    else:
-                        run_query("UPDATE usuarios SET email=%s, ativo=%s WHERE id=%s",
-                            (novo_email.strip().lower(), novo_ativo, uid))
+                b1, b2 = st.columns(2)
+                if b1.button("💾 Salvar", key=f"u_{uid}", use_container_width=True):
+                    run_query("UPDATE usuarios SET email=%s, ativo=%s WHERE id=%s",
+                        (novo_email.strip().lower(), novo_ativo, uid))
                     st.cache_data.clear()
                     st.success("✅ Atualizado!")
                     st.rerun()
+                if b2.button("🔑 Resetar para roc2026", key=f"reset_{uid}", use_container_width=True,
+                             help="Reseta a senha para roc2026. O setor terá que trocá-la no próximo acesso."):
+                    run_query("UPDATE usuarios SET senha=%s, primeiro_acesso=1 WHERE id=%s",
+                        ("roc2026", uid))
+                    st.cache_data.clear()
+                    st.success(f"✅ Senha de '{nome}' resetada para **roc2026**. Ele terá que trocá-la no próximo acesso.")
 
         st.markdown("---")
         st.subheader("➕ Novo Setor")
