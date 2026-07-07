@@ -441,6 +441,19 @@ def tela_dashboard():
         "Valor","Observação","Status","Aberto Em","Atendido Em",
         "Resolvido Em","Resolução"
     ])
+
+    # Total de notificações por protocolo (1 por movimentação: agrupa cópias do
+    # mesmo evento = protocolo + tipo + minuto), para virar coluna na aba Chamados.
+    mapa_notif = {}
+    if notifs_raw:
+        dfc = pd.DataFrame(notifs_raw, columns=["protocolo", "tipo", "enviado_em"])
+        dfc = dfc[dfc["tipo"] != "alerta_sla"]
+        dfc = dfc[dfc["protocolo"].notna() & (dfc["protocolo"] != "")]
+        dfc["_evt"] = (dfc["protocolo"].astype(str) + "|" + dfc["tipo"].astype(str)
+                       + "|" + dfc["enviado_em"].astype(str).str.slice(0, 16))
+        contagem = dfc.groupby("protocolo")["_evt"].nunique()
+        mapa_notif = contagem.to_dict()
+    df_export["Notificações"] = df_export["Protocolo"].map(lambda p: int(mapa_notif.get(p, 0)))
     df_kpi = pd.DataFrame({"Indicador":["Total","Abertos","Em Andamento","Resolvidos","Tempo Médio (h)"],
                             "Valor":[total,abertos,em_andamento,resolvidos,f"{tempo_medio:.1f}" if not pd.isna(tempo_medio) else "—"]})
     df_te = df_f.groupby("tipo").size().reset_index(name="Quantidade").sort_values("Quantidade",ascending=False).rename(columns={"tipo":"Tipo"})
