@@ -127,6 +127,48 @@ def criar_chamado_tratativa(setor_destino, empresa, tipo_inconsistencia, tipo_no
 
     return protocolo
 
+def abrir_chamados_para_setores(setores_sel, copia_nomes, mapa_email, *,
+        empresa, tipo_inconsistencia, tipo_nota,
+        nome_parceiro="", numero_nota="", valor="", observacao="",
+        nu_financeiro="", nu_nota="", arquivos=None, solicitante="",
+        prioridade="Normal", nf_retorna="", financeiro_baixado="",
+        data_entrada=None, data_negociacao=None, atrasos=""):
+    """Cria um chamado INDEPENDENTE para CADA setor selecionado (mesmo conteúdo).
+    Notifica cada setor e aplica os setores em cópia — ignorando, em cada chamado,
+    o setor que já é o responsável dele (evita duplicar). Retorna [(setor, protocolo)]."""
+    anexos_email = anexos_para_email(desempacotar_anexos(*empacotar_anexos(arquivos)))
+    criados = []
+    for s in setores_sel:
+        setor_nome = s[0]
+        email_setor = s[1]
+        protocolo = criar_chamado_tratativa(setor_nome, empresa, tipo_inconsistencia, tipo_nota,
+            nome_parceiro, numero_nota, valor, observacao,
+            nu_financeiro, nu_nota, arquivos, solicitante,
+            prioridade=prioridade, nf_retorna=nf_retorna, financeiro_baixado=financeiro_baixado,
+            data_entrada=data_entrada, data_negociacao=data_negociacao, atrasos=atrasos)
+        try:
+            if email_setor:
+                email_novo_chamado(email_setor, protocolo, setor_nome, tipo_inconsistencia,
+                    prioridade or "Normal", (nome_parceiro or "").strip(), (numero_nota or "").strip(),
+                    solicitante, anexos=anexos_email,
+                    nu_financeiro=(nu_financeiro or "").strip(), nu_nota=(nu_nota or "").strip(),
+                    atrasos=(atrasos or "").strip())
+        except:
+            pass
+        # Setores em cópia: ignora o que já é responsável deste chamado.
+        for n in copia_nomes:
+            if n == setor_nome:
+                continue
+            em = mapa_email.get(n)
+            if em and em != email_setor:
+                try:
+                    salvar_copia(protocolo, n)
+                    email_setor_em_copia(em, protocolo, n, setor_nome)
+                except:
+                    pass
+        criados.append((setor_nome, protocolo))
+    return criados
+
 def tela_tratativa():
     st.title("📤 Abertura de Chamado pela Contabilidade")
     st.markdown("A Contabilidade abre o chamado **direto para o setor responsável** — ele aparece em "
@@ -144,11 +186,13 @@ def tela_tratativa():
     tipos = run_query("SELECT nome FROM tipos_inconsistencia WHERE ativo=1 ORDER BY nome", fetch=True)
     tipos_lista = [t[0] for t in tipos] if tipos else []
 
-    st.markdown("#### 📧 Setor Responsavel *")
-    setor_sel_key = st.selectbox("Selecione o setor", [""] + list(opcoes_setores.keys()), label_visibility="collapsed")
-    setor_dados = opcoes_setores.get(setor_sel_key)
-    nome_resp = setor_dados[0] if setor_dados else None
-    nomes_copia = [s[0] for s in setores if s[1] and s[0] != nome_resp]
+    st.markdown("#### 📧 Setores Responsáveis * (pode marcar mais de um)")
+    st.caption("Se marcar vários, será criado um chamado independente para cada setor (mesmo conteúdo).")
+    setores_sel_keys = st.multiselect("Selecione o(s) setor(es)", list(opcoes_setores.keys()),
+        label_visibility="collapsed")
+    setores_sel = [opcoes_setores[k] for k in setores_sel_keys]
+    nomes_resp = [s[0] for s in setores_sel]
+    nomes_copia = [s[0] for s in setores if s[1] and s[0] not in nomes_resp]
 
     st.markdown("---")
     st.markdown("#### 🗂️ Tipo de Movimentacao")
@@ -217,41 +261,24 @@ def tela_tratativa():
         arq_fe = st.file_uploader("📎 Anexar documentos (opcional)", type=["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"], accept_multiple_files=True, key="trat_fech_arq")
 
         st.markdown("---")
-        if st.button("📨 Abrir Chamado para o Setor", use_container_width=True, key="trat_fech_enviar"):
+        if st.button("📨 Abrir Chamado para o(s) Setor(es)", use_container_width=True, key="trat_fech_enviar"):
             erros = []
-            if not setor_dados: erros.append("Setor responsavel")
+            if not setores_sel: erros.append("Setor responsavel")
             if not parcial: erros.append("Fechamento parcial")
             if not empresa_fe: erros.append("Empresa")
             if erros:
                 st.error(f"Preencha: {', '.join(erros)}")
                 return
-            setor_nome = setor_dados[0]
-            email_setor = setor_dados[1]
             tipo_final = f"{TIPO_FECHAMENTO} - {parcial}"
-            protocolo = criar_chamado_tratativa(setor_nome, empresa_fe, tipo_final, TIPO_FECHAMENTO,
-                "", "", "", obs_fe.strip(), "", "", arq_fe, st.session_state.usuario,
+            criados = abrir_chamados_para_setores(setores_sel, copia_fe, mapa_email,
+                empresa=empresa_fe, tipo_inconsistencia=tipo_final, tipo_nota=TIPO_FECHAMENTO,
+                observacao=obs_fe.strip(), arquivos=arq_fe, solicitante=st.session_state.usuario,
                 atrasos=atrasos_fe.strip())
-            try:
-                if email_setor:
-                    _dados, _nomes = empacotar_anexos(arq_fe)
-                    email_novo_chamado(email_setor, protocolo, setor_nome, tipo_final, "Normal",
-                        "", "", st.session_state.usuario,
-                        anexos=anexos_para_email(desempacotar_anexos(_dados, _nomes)),
-                        atrasos=atrasos_fe.strip())
-            except:
-                pass
-            for n in copia_fe:
-                em = mapa_email.get(n)
-                if em and em != email_setor:
-                    try:
-                        salvar_copia(protocolo, n)
-                        email_setor_em_copia(em, protocolo, n, setor_nome)
-                    except:
-                        pass
             for k in ["trat_tipo_nota","trat_fech_parcial","trat_fech_obs","trat_fech_atrasos","trat_fech_arq","trat_fech_copia","trat_fech_emps"]:
                 st.session_state.pop(k, None)
             st.cache_data.clear()
-            st.success(f"✅ Chamado **{protocolo}** aberto para {setor_nome} (Em andamento).")
+            resumo = " · ".join(f"{s}: {p}" for s, p in criados)
+            st.success(f"✅ {len(criados)} chamado(s) aberto(s) (Em andamento). {resumo}")
             st.balloons()
         st.markdown("---")
         _lista_enviados()
@@ -307,9 +334,9 @@ def tela_tratativa():
         obs_f = st.text_area("📝 Observacao *", placeholder="Descreva a solicitação...", key="trat_folha_obs")
 
         st.markdown("---")
-        if st.button("📨 Abrir Chamado para o Setor", use_container_width=True, key="trat_folha_enviar"):
+        if st.button("📨 Abrir Chamado para o(s) Setor(es)", use_container_width=True, key="trat_folha_enviar"):
             erros = []
-            if not setor_dados: erros.append("Setor responsavel")
+            if not setores_sel: erros.append("Setor responsavel")
             if not empresa_f: erros.append("Empresa")
             if not inc_f: erros.append("Tipo de Inconsistencia")
             if inc_f == "Outros" and not inc_f_outros.strip(): erros.append("Descricao da inconsistencia")
@@ -320,32 +347,16 @@ def tela_tratativa():
             if erros:
                 st.error(f"Preencha: {', '.join(erros)}")
                 return
-            setor_nome = setor_dados[0]
-            email_setor = setor_dados[1]
             inc_final = f"Outros: {inc_f_outros.strip()}" if inc_f == "Outros" else inc_f
-            protocolo = criar_chamado_tratativa(setor_nome, empresa_f, inc_final, TIPO_FOLHA,
-                "", "", "", obs_f.strip(), "", "", arq_f, solicitante_f.strip(),
+            criados = abrir_chamados_para_setores(setores_sel, copia_f, mapa_email,
+                empresa=empresa_f, tipo_inconsistencia=inc_final, tipo_nota=TIPO_FOLHA,
+                observacao=obs_f.strip(), arquivos=arq_f, solicitante=solicitante_f.strip(),
                 financeiro_baixado=fin_baixado_f)
-            try:
-                if email_setor:
-                    _dados, _nomes = empacotar_anexos(arq_f)
-                    email_novo_chamado(email_setor, protocolo, setor_nome, TIPO_FOLHA, "Normal",
-                        "", "", solicitante_f.strip(),
-                        anexos=anexos_para_email(desempacotar_anexos(_dados, _nomes)))
-            except:
-                pass
-            for n in copia_f:
-                em = mapa_email.get(n)
-                if em and em != email_setor:
-                    try:
-                        salvar_copia(protocolo, n)
-                        email_setor_em_copia(em, protocolo, n, setor_nome)
-                    except:
-                        pass
             for k in ["trat_tipo_nota","trat_folha_emp","trat_folha_obs","trat_folha_arq","trat_folha_copia","trat_folha_inc","trat_folha_inc_outros","trat_folha_fin","trat_folha_solic"]:
                 st.session_state.pop(k, None)
             st.cache_data.clear()
-            st.success(f"✅ Chamado **{protocolo}** aberto para {setor_nome} (Em andamento).")
+            resumo = " · ".join(f"{s}: {p}" for s, p in criados)
+            st.success(f"✅ {len(criados)} chamado(s) aberto(s) (Em andamento). {resumo}")
             st.balloons()
         st.markdown("---")
         _lista_enviados()
@@ -415,9 +426,9 @@ def tela_tratativa():
         obs_c70 = st.text_area("📝 Observação *", placeholder="Descreva a divergência...", key="trat_c70_obs")
 
         st.markdown("---")
-        if st.button("📨 Abrir Chamado para o Setor", use_container_width=True, key="trat_c70_enviar"):
+        if st.button("📨 Abrir Chamado para o(s) Setor(es)", use_container_width=True, key="trat_c70_enviar"):
             erros = []
-            if not setor_dados: erros.append("Setor responsavel")
+            if not setores_sel: erros.append("Setor responsavel")
             if not empresa_c70: erros.append("Empresa")
             if not solicitante_c70.strip(): erros.append("Nome do Solicitante")
             if not arq_c70: erros.append("Anexo")
@@ -425,31 +436,15 @@ def tela_tratativa():
             if erros:
                 st.error(f"Preencha: {', '.join(erros)}")
                 return
-            setor_nome = setor_dados[0]
-            email_setor = setor_dados[1]
-            protocolo = criar_chamado_tratativa(setor_nome, empresa_c70, TIPO_CONTA70, tipo_nota,
-                "", "", "", obs_c70.strip(), "", "", arq_c70, solicitante_c70.strip())
-            try:
-                if email_setor:
-                    _dados, _nomes = empacotar_anexos(arq_c70)
-                    email_novo_chamado(email_setor, protocolo, setor_nome, TIPO_CONTA70, "Normal",
-                        "", "", solicitante_c70.strip(),
-                        anexos=anexos_para_email(desempacotar_anexos(_dados, _nomes)))
-            except:
-                pass
-            for n in copia_c70:
-                em = mapa_email.get(n)
-                if em and em != email_setor:
-                    try:
-                        salvar_copia(protocolo, n)
-                        email_setor_em_copia(em, protocolo, n, setor_nome)
-                    except:
-                        pass
+            criados = abrir_chamados_para_setores(setores_sel, copia_c70, mapa_email,
+                empresa=empresa_c70, tipo_inconsistencia=TIPO_CONTA70, tipo_nota=tipo_nota,
+                observacao=obs_c70.strip(), arquivos=arq_c70, solicitante=solicitante_c70.strip())
             for k in ["trat_tipo_nota","trat_tipo","trat_c70_emps","trat_c70_solic",
                       "trat_c70_copia","trat_c70_arq","trat_c70_obs"]:
                 st.session_state.pop(k, None)
             st.cache_data.clear()
-            st.success(f"✅ Chamado **{protocolo}** aberto para {setor_nome} (Em andamento).")
+            resumo = " · ".join(f"{s}: {p}" for s, p in criados)
+            st.success(f"✅ {len(criados)} chamado(s) aberto(s) (Em andamento). {resumo}")
             st.balloons()
         st.markdown("---")
         _lista_enviados()
@@ -526,7 +521,7 @@ def tela_tratativa():
 
     if enviar:
         erros = []
-        if not setor_dados: erros.append("Setor responsavel")
+        if not setores_sel: erros.append("Setor responsavel")
         if not tipo: erros.append("Tipo de Inconsistencia")
         if tipo == "Outros" and not tipo_outros_desc.strip(): erros.append("Descricao da inconsistencia")
         if not empresa: erros.append("Empresa")
@@ -544,45 +539,22 @@ def tela_tratativa():
             st.error(f"Preencha: {', '.join(erros)}")
             return
 
-        setor_nome = setor_dados[0]
-        email_setor = setor_dados[1]
         tipo_final = f"Outros: {tipo_outros_desc.strip()}" if tipo == "Outros" else (tipo or "")
 
-        protocolo = criar_chamado_tratativa(setor_nome, empresa, tipo_final, tipo_nota,
-            nome_parceiro, numero_nota, valor, observacao,
-            nu_financeiro, nu_nota, arquivo, solicitante.strip(),
+        criados = abrir_chamados_para_setores(setores_sel, copia_sel, mapa_email,
+            empresa=empresa, tipo_inconsistencia=tipo_final, tipo_nota=tipo_nota,
+            nome_parceiro=nome_parceiro, numero_nota=numero_nota, valor=valor,
+            observacao=observacao, nu_financeiro=nu_financeiro, nu_nota=nu_nota,
+            arquivos=arquivo, solicitante=solicitante.strip(),
             prioridade=prioridade, nf_retorna=nf_retorna, financeiro_baixado=fin_baixado,
             data_entrada=data_ent or None, data_negociacao=data_neg or None)
-
-        try:
-            if email_setor:
-                _dados, _nomes = empacotar_anexos(arquivo)
-                email_novo_chamado(email_setor, protocolo, setor_nome, tipo_final, prioridade,
-                    nome_parceiro.strip(), numero_nota.strip(), solicitante.strip(),
-                    anexos=anexos_para_email(desempacotar_anexos(_dados, _nomes)),
-                    nu_financeiro=nu_financeiro.strip(), nu_nota=nu_nota.strip())
-        except:
-            pass
-
-        copias_enviadas = []
-        for n in copia_sel:
-            em = mapa_email.get(n)
-            if em and em != email_setor:
-                try:
-                    salvar_copia(protocolo, n)
-                    email_setor_em_copia(em, protocolo, n, setor_nome)
-                    copias_enviadas.append(n)
-                except:
-                    pass
 
         for k in ["trat_tipo_nota","trat_empresa","trat_tipo","trat_outros","trat_prioridade",
                   "trat_nf","trat_fin","trat_data_ent","trat_data_neg"]:
             st.session_state.pop(k, None)
         st.cache_data.clear()
-        msg = f"✅ Chamado **{protocolo}** aberto para {setor_nome} (Em andamento)."
-        if copias_enviadas:
-            msg += f" Em cópia: {', '.join(copias_enviadas)}."
-        st.success(msg)
+        resumo = " · ".join(f"{s}: {p}" for s, p in criados)
+        st.success(f"✅ {len(criados)} chamado(s) aberto(s) (Em andamento). {resumo}")
         st.balloons()
 
     st.markdown("---")
