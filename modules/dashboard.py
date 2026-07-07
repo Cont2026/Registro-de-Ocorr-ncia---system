@@ -11,6 +11,7 @@ from openpyxl.utils import get_column_letter
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
 PREFIXO_FECHAMENTO = "INFORMAR ENTREGÁVEIS"
+LABEL_ENTREGAVEIS = "📦 Entregáveis (todos)"
 
 CORES_NIVEL = {
     "Dentro do esperado": "#0F8C3B",
@@ -233,18 +234,36 @@ def tela_dashboard():
         "prioridade","status","aberto_em","atendido_em","resolvido_em","reaberturas"
     ])
     df["reaberturas"] = pd.to_numeric(df["reaberturas"], errors="coerce").fillna(0).astype(int)
-    # 'peso' = quantas vezes o chamado conta no total. Cada reabertura é um retrabalho,
-    # então um chamado reaberto 1x conta como 2 (original + retrabalho).
     df["peso"] = 1 + df["reaberturas"]
     df["aberto_em"] = pd.to_datetime(df["aberto_em"])
     df["resolvido_em"] = pd.to_datetime(df["resolvido_em"])
     df["tempo_resolucao"] = (df["resolvido_em"] - df["aberto_em"]).dt.total_seconds() / 3600
+
+    # Marca se o chamado é entregável (INFORMAR ENTREGÁVEIS, em qualquer parcial).
+    df["eh_entregavel"] = df["tipo"].astype(str).str.startswith(PREFIXO_FECHAMENTO)
 
     st.markdown("#### 🔎 Filtros")
     c1, c2, c3 = st.columns(3)
     filtro_status = c1.multiselect("Status", df["status"].unique().tolist(), default=df["status"].unique().tolist())
     filtro_empresa = c2.multiselect("Empresa", df["empresa"].unique().tolist(), default=df["empresa"].unique().tolist())
     filtro_setor = c3.multiselect("Setor", df["setor"].unique().tolist(), default=df["setor"].unique().tolist())
+
+    # Filtro de Tipo: os entregáveis (todas as parciais) aparecem como UM item só.
+    # As inconsistências entram cada uma com seu nome. Começa tudo marcado.
+    tipos_incons = sorted([t for t in df.loc[~df["eh_entregavel"], "tipo"].dropna().unique().tolist() if t])
+    tem_entregaveis = bool(df["eh_entregavel"].any())
+    opcoes_tipo = ([LABEL_ENTREGAVEIS] if tem_entregaveis else []) + tipos_incons
+    ft1, _ = st.columns([2, 1])
+    filtro_tipo = ft1.multiselect(
+        "Tipo (desmarque \"📦 Entregáveis (todos)\" para ver só as inconsistências)",
+        opcoes_tipo, default=opcoes_tipo, key="dash_filtro_tipo")
+
+    # Traduz a seleção do filtro de tipo em uma máscara sobre o df.
+    incons_sel = [t for t in filtro_tipo if t != LABEL_ENTREGAVEIS]
+    inclui_entregaveis = LABEL_ENTREGAVEIS in filtro_tipo
+    mask_tipo = df["tipo"].isin(incons_sel)
+    if inclui_entregaveis:
+        mask_tipo = mask_tipo | df["eh_entregavel"]
 
     # Filtro por data (base: Abertura ou Resolução) + período
     d1, d2, d3 = st.columns(3)
@@ -261,6 +280,7 @@ def tela_dashboard():
         df["status"].isin(filtro_status) &
         df["empresa"].isin(filtro_empresa) &
         df["setor"].isin(filtro_setor) &
+        mask_tipo &
         mask_data
     ]
 
@@ -390,7 +410,6 @@ def tela_dashboard():
         if dfn.empty:
             st.info("Nenhuma notificação desse tipo.")
         else:
-            # 1 por movimentação: agrupa as cópias do mesmo evento (mesmo protocolo + tipo + minuto)
             dfn["_evt"] = dfn["tipo"].astype(str) + "|" + dfn["enviado_em"].astype(str).str.slice(0, 16)
             cons = dfn.groupby("protocolo").agg(
                 total=("_evt", "nunique"),
@@ -410,8 +429,12 @@ def tela_dashboard():
 
     st.markdown("---")
     st.markdown("##### 📥 Exportar dados")
+    # A aba "Chamados" respeita os filtros da tela: exporta apenas os chamados que
+    # estão em df_f (mesmos filtros de status, empresa, setor, tipo e data).
+    protocolos_filtrados = set(df_f["protocolo"].tolist())
     todos = carregar_chamados_completo()
-    df_export = pd.DataFrame(todos, columns=[
+    todos_filtrados = [linha for linha in (todos or []) if linha[0] in protocolos_filtrados]
+    df_export = pd.DataFrame(todos_filtrados, columns=[
         "Protocolo","Setor","Empresa","Abertura de Período / Descontabilização",
         "Prioridade","NF Retorna","Parceiro","Número Nota",
         "Tipo Nota","Data Entrada","Data Saída","Data Negociação",
@@ -425,7 +448,6 @@ def tela_dashboard():
     df_ee = df_f.groupby("empresa").size().reset_index(name="Quantidade").rename(columns={"empresa":"Empresa"})
     df_ste = df_f.groupby("status").size().reset_index(name="Quantidade").rename(columns={"status":"Status"})
 
-    # Notificações por protocolo para o Excel (total + quebra por tipo)
     df_notif_total = None
     df_notif_tipo = None
     if notifs_raw:
@@ -433,7 +455,6 @@ def tela_dashboard():
         dft = dft[dft["tipo"] != "alerta_sla"]
         dft["protocolo"] = dft["protocolo"].replace("", None).fillna("(sem protocolo)")
         dft["tipo_label"] = dft["tipo"].map(lambda t: LABELS_NOTIF.get(t, t) if t else "—")
-        # 1 por movimentação: identifica o evento (protocolo + tipo + minuto) e remove as cópias
         dft["_evt"] = dft["protocolo"].astype(str) + "|" + dft["tipo"].astype(str) + "|" + dft["enviado_em"].astype(str).str.slice(0, 16)
         dft_evt = dft.drop_duplicates(subset="_evt")
         df_notif_total = (
@@ -497,11 +518,9 @@ def tela_dashboard():
             linha += len(df_sec) + 3
         ajustar_colunas(ws2)
 
-        # Aba de Performance por Setor
         if not df_perf.empty:
             escrever_aba_performance(writer, df_perf)
 
-        # Abas de Notificações por Protocolo
         if df_notif_total is not None and not df_notif_total.empty:
             escrever_aba_tabela(writer, "Notificações", "ROC — Notificações por Protocolo", df_notif_total)
         if df_notif_tipo is not None and not df_notif_tipo.empty:
