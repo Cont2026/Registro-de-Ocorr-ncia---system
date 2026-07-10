@@ -315,21 +315,24 @@ def tela_dashboard():
     k6.metric("⏱️ Tempo médio", f"{tempo_medio:.1f}h" if not pd.isna(tempo_medio) else "—")
 
     st.markdown("---")
-    ca, cb = st.columns(2)
-    with ca:
-        st.markdown("##### Chamados por Tipo")
-        st.caption("Inclui o retrabalho: chamados reabertos contam como 2.")
-        df_t = df_f.groupby("tipo")["peso"].sum().reset_index(name="qtd").sort_values("qtd", ascending=False)
-        fig1 = px.bar(df_t, x="qtd", y="tipo", orientation="h", color="qtd", color_continuous_scale="Blues", labels={"qtd":"Qtd","tipo":""})
-        fig1.update_layout(showlegend=False, coloraxis_showscale=False, margin=dict(l=0,r=0,t=0,b=0), height=300)
-        st.plotly_chart(fig1, use_container_width=True)
-    with cb:
-        st.markdown("##### Chamados por Setor")
-        st.caption("Inclui o retrabalho: chamados reabertos contam como 2.")
-        df_s = df_f.groupby("setor")["peso"].sum().reset_index(name="qtd").sort_values("qtd", ascending=False)
-        fig2 = px.bar(df_s, x="qtd", y="setor", orientation="h", color="qtd", color_continuous_scale="Greens", labels={"qtd":"Qtd","setor":""})
-        fig2.update_layout(showlegend=False, coloraxis_showscale=False, margin=dict(l=0,r=0,t=0,b=0), height=300)
-        st.plotly_chart(fig2, use_container_width=True)
+    if df_f.empty:
+        st.info("Sem dados para os filtros selecionados.")
+    else:
+        ca, cb = st.columns(2)
+        with ca:
+            st.markdown("##### Chamados por Tipo")
+            st.caption("Inclui o retrabalho: chamados reabertos contam como 2.")
+            df_t = df_f.groupby("tipo")["peso"].sum().reset_index(name="qtd").sort_values("qtd", ascending=False)
+            fig1 = px.bar(df_t, x="qtd", y="tipo", orientation="h", color="qtd", color_continuous_scale="Blues", labels={"qtd":"Qtd","tipo":""})
+            fig1.update_layout(showlegend=False, coloraxis_showscale=False, margin=dict(l=0,r=0,t=0,b=0), height=300)
+            st.plotly_chart(fig1, use_container_width=True)
+        with cb:
+            st.markdown("##### Chamados por Setor")
+            st.caption("Inclui o retrabalho: chamados reabertos contam como 2.")
+            df_s = df_f.groupby("setor")["peso"].sum().reset_index(name="qtd").sort_values("qtd", ascending=False)
+            fig2 = px.bar(df_s, x="qtd", y="setor", orientation="h", color="qtd", color_continuous_scale="Greens", labels={"qtd":"Qtd","setor":""})
+            fig2.update_layout(showlegend=False, coloraxis_showscale=False, margin=dict(l=0,r=0,t=0,b=0), height=300)
+            st.plotly_chart(fig2, use_container_width=True)
 
     # === Performance por Setor (régua de erros) ===
     st.markdown("##### 🎯 Performance por Setor")
@@ -353,24 +356,32 @@ def tela_dashboard():
             cols = st.columns(n_cols)
             for j, setor in enumerate(grupo):
                 with cols[j]:
-                    df_pie = df_f[df_f["setor"] == setor].groupby("tipo").size().reset_index(name="qtd")
-                    fig = px.pie(df_pie, names="tipo", values="qtd")
-                    fig.update_traces(textposition="inside", textinfo="percent")
-                    fig.update_layout(
-                        title=dict(text=setor, font=dict(size=14, color="#041747")),
-                        margin=dict(l=0, r=0, t=40, b=0), height=320,
-                        legend=dict(orientation="h", y=-0.1, font=dict(size=9))
-                    )
-                    st.plotly_chart(fig, use_container_width=True, key=f"pie_setor_{inicio+j}")
+                    try:
+                        df_pie = df_f[df_f["setor"] == setor].groupby("tipo").size().reset_index(name="qtd")
+                        if df_pie.empty:
+                            continue
+                        fig = px.pie(df_pie, names="tipo", values="qtd")
+                        fig.update_traces(textposition="inside", textinfo="percent")
+                        fig.update_layout(
+                            title=dict(text=setor, font=dict(size=14, color="#041747")),
+                            margin=dict(l=0, r=0, t=40, b=0), height=320,
+                            legend=dict(orientation="h", y=-0.1, font=dict(size=9))
+                        )
+                        st.plotly_chart(fig, use_container_width=True, key=f"pie_setor_{inicio+j}")
+                    except Exception:
+                        st.caption(f"Sem dados para {setor}.")
 
     st.markdown("---")
     st.markdown("##### 📈 Evolução Mensal")
-    df_evo = df_f.copy()
-    df_evo["mes"] = df_evo["aberto_em"].dt.to_period("M").astype(str)
-    df_m = df_evo.groupby("mes").size().reset_index(name="qtd").sort_values("mes")
-    fig5 = px.line(df_m, x="mes", y="qtd", markers=True, labels={"mes":"Mês","qtd":"Chamados"})
-    fig5.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=250)
-    st.plotly_chart(fig5, use_container_width=True)
+    if df_f.empty:
+        st.info("Sem dados para o período selecionado.")
+    else:
+        df_evo = df_f.copy()
+        df_evo["mes"] = df_evo["aberto_em"].dt.to_period("M").astype(str)
+        df_m = df_evo.groupby("mes").size().reset_index(name="qtd").sort_values("mes")
+        fig5 = px.line(df_m, x="mes", y="qtd", markers=True, labels={"mes":"Mês","qtd":"Chamados"})
+        fig5.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=250)
+        st.plotly_chart(fig5, use_container_width=True)
 
     # === Registro de entregas de fechamento de período ===
     st.markdown("---")
