@@ -242,37 +242,50 @@ def tela_dashboard():
     # Marca se o chamado é entregável (INFORMAR ENTREGÁVEIS, em qualquer parcial).
     df["eh_entregavel"] = df["tipo"].astype(str).str.startswith(PREFIXO_FECHAMENTO)
 
-    st.markdown("#### 🔎 Filtros")
-    c1, c2, c3 = st.columns(3)
-    filtro_status = c1.multiselect("Status", df["status"].unique().tolist(), default=df["status"].unique().tolist())
-    filtro_empresa = c2.multiselect("Empresa", df["empresa"].unique().tolist(), default=df["empresa"].unique().tolist())
-    filtro_setor = c3.multiselect("Setor", df["setor"].unique().tolist(), default=df["setor"].unique().tolist())
+    # === Seletor rápido: Tudo / Só inconsistências / Só entregáveis (sempre visível) ===
+    modo_exib = st.radio(
+        "Exibir",
+        ["Tudo", "Só inconsistências", "Só entregáveis"],
+        horizontal=True, key="dash_modo_exib", label_visibility="collapsed")
 
-    # Filtro de Tipo: os entregáveis (todas as parciais) aparecem como UM item só.
-    # As inconsistências entram cada uma com seu nome. Começa tudo marcado.
-    tipos_incons = sorted([t for t in df.loc[~df["eh_entregavel"], "tipo"].dropna().unique().tolist() if t])
-    tem_entregaveis = bool(df["eh_entregavel"].any())
-    opcoes_tipo = ([LABEL_ENTREGAVEIS] if tem_entregaveis else []) + tipos_incons
-    ft1, _ = st.columns([2, 1])
-    filtro_tipo = ft1.multiselect(
-        "Tipo (desmarque \"📦 Entregáveis (todos)\" para ver só as inconsistências)",
-        opcoes_tipo, default=opcoes_tipo, key="dash_filtro_tipo")
+    # === Filtros detalhados, recolhíveis (começam fechados) ===
+    with st.expander("🔎 Filtros detalhados", expanded=False):
+        c1, c2, c3 = st.columns(3)
+        filtro_status = c1.multiselect("Status", df["status"].unique().tolist(), default=df["status"].unique().tolist())
+        filtro_empresa = c2.multiselect("Empresa", df["empresa"].unique().tolist(), default=df["empresa"].unique().tolist())
+        filtro_setor = c3.multiselect("Setor", df["setor"].unique().tolist(), default=df["setor"].unique().tolist())
 
-    # Traduz a seleção do filtro de tipo em uma máscara sobre o df.
+        # Filtro de Tipo detalhado (entregáveis agrupados como 1 item). Começa tudo marcado.
+        tipos_incons = sorted([t for t in df.loc[~df["eh_entregavel"], "tipo"].dropna().unique().tolist() if t])
+        tem_entregaveis = bool(df["eh_entregavel"].any())
+        opcoes_tipo = ([LABEL_ENTREGAVEIS] if tem_entregaveis else []) + tipos_incons
+        filtro_tipo = st.multiselect(
+            "Tipo (filtro detalhado — opcional)",
+            opcoes_tipo, default=opcoes_tipo, key="dash_filtro_tipo")
+
+        # Filtro por data (base: Abertura ou Resolução) + período
+        d1, d2, d3 = st.columns(3)
+        campo_label = d1.selectbox("Filtrar data por", ["Abertura", "Resolução"])
+        col_data = "aberto_em" if campo_label == "Abertura" else "resolvido_em"
+        data_min = df["aberto_em"].min().date()
+        data_max = df["aberto_em"].max().date()
+        data_ini = d2.date_input("De", value=data_min, key="dash_data_ini")
+        data_fim = d3.date_input("Até", value=data_max, key="dash_data_fim")
+
+    # Máscara do seletor rápido (modo de exibição).
+    if modo_exib == "Só inconsistências":
+        mask_modo = ~df["eh_entregavel"]
+    elif modo_exib == "Só entregáveis":
+        mask_modo = df["eh_entregavel"]
+    else:
+        mask_modo = pd.Series(True, index=df.index)
+
+    # Máscara do filtro de tipo detalhado (entregáveis agrupados).
     incons_sel = [t for t in filtro_tipo if t != LABEL_ENTREGAVEIS]
     inclui_entregaveis = LABEL_ENTREGAVEIS in filtro_tipo
     mask_tipo = df["tipo"].isin(incons_sel)
     if inclui_entregaveis:
         mask_tipo = mask_tipo | df["eh_entregavel"]
-
-    # Filtro por data (base: Abertura ou Resolução) + período
-    d1, d2, d3 = st.columns(3)
-    campo_label = d1.selectbox("Filtrar data por", ["Abertura", "Resolução"])
-    col_data = "aberto_em" if campo_label == "Abertura" else "resolvido_em"
-    data_min = df["aberto_em"].min().date()
-    data_max = df["aberto_em"].max().date()
-    data_ini = d2.date_input("De", value=data_min, key="dash_data_ini")
-    data_fim = d3.date_input("Até", value=data_max, key="dash_data_fim")
 
     mask_data = df[col_data].dt.date.between(data_ini, data_fim)
 
@@ -280,6 +293,7 @@ def tela_dashboard():
         df["status"].isin(filtro_status) &
         df["empresa"].isin(filtro_empresa) &
         df["setor"].isin(filtro_setor) &
+        mask_modo &
         mask_tipo &
         mask_data
     ]
