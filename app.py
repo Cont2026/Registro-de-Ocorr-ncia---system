@@ -98,17 +98,6 @@ def buscar_usuario(email, senha):
         (email, senha), fetch=True)
     return rows[0] if rows else None
 
-@st.cache_data(ttl=60, show_spinner=False)
-def contar_pendentes():
-    """Conta chamados Abertos e Em andamento (sem os entregáveis informativos).
-    Cacheado por 60s: evita 2 consultas ao banco a CADA troca de tela — essa era
-    a principal causa da lentidão ao navegar, pois o sidebar aparece em todas as telas."""
-    filtro = """AND COALESCE(tipo_nota,'') <> %s AND COALESCE(tipo_inconsistencia,'') NOT LIKE %s"""
-    params = (TIPO_FECHAMENTO, TIPO_FECHAMENTO + "%")
-    abertos = run_query(f"SELECT COUNT(*) FROM chamados WHERE status='Aberto' {filtro}", params, fetch=True)[0][0]
-    em_andamento = run_query(f"SELECT COUNT(*) FROM chamados WHERE status='Em andamento' {filtro}", params, fetch=True)[0][0]
-    return abertos, em_andamento
-
 def setor_eh_dono(protocolo, setor):
     try:
         r = run_query("SELECT 1 FROM chamados WHERE protocolo=%s AND setor=%s", (protocolo, setor), fetch=True)
@@ -213,11 +202,16 @@ def sidebar():
         """, unsafe_allow_html=True)
 
         if st.session_state.perfil == "contabilidade":
-            # Contagem cacheada (60s): não repete consulta a cada troca de tela.
-            try:
-                abertos, em_andamento = contar_pendentes()
-            except:
-                abertos, em_andamento = 0, 0
+            # INFORMAR ENTREGÁVEIS não entra no contador de pendentes (registro informativo).
+            filtro_entregaveis = """AND COALESCE(tipo_nota,'') <> %s
+                AND COALESCE(tipo_inconsistencia,'') NOT LIKE %s"""
+            params_entregaveis = (TIPO_FECHAMENTO, TIPO_FECHAMENTO + "%")
+            abertos = run_query(
+                f"SELECT COUNT(*) FROM chamados WHERE status='Aberto' {filtro_entregaveis}",
+                params_entregaveis, fetch=True)[0][0]
+            em_andamento = run_query(
+                f"SELECT COUNT(*) FROM chamados WHERE status='Em andamento' {filtro_entregaveis}",
+                params_entregaveis, fetch=True)[0][0]
             if abertos > 0 or em_andamento > 0:
                 txt_abertos = f"<p style='font-size:12px;color:white;margin:0;'>🔴 {abertos} aberto(s)</p>" if abertos > 0 else ""
                 txt_andamento = f"<p style='font-size:12px;color:white;margin:0;'>🟡 {em_andamento} em andamento</p>" if em_andamento > 0 else ""
