@@ -298,13 +298,20 @@ def tela_dashboard():
         mask_data
     ]
 
+    # No modo "Só entregáveis", os entregáveis são entregas concluídas (não têm ciclo
+    # Aberto/Em andamento). Para os indicadores e gráficos por status fazerem sentido,
+    # usamos uma CÓPIA com o status forçado para "Resolvido" (não altera o banco).
+    df_status = df_f.copy()
+    if modo_exib == "Só entregáveis":
+        df_status.loc[df_status["eh_entregavel"], "status"] = "Resolvido"
+
     st.markdown("---")
     st.markdown("#### 📈 Indicadores")
     k1, k2, k3, k4, k5, k6 = st.columns(6)
     total = len(df_f)
-    abertos = len(df_f[df_f["status"] == "Aberto"])
-    em_andamento = len(df_f[df_f["status"] == "Em andamento"])
-    resolvidos = len(df_f[df_f["status"] == "Resolvido"])
+    abertos = len(df_status[df_status["status"] == "Aberto"])
+    em_andamento = len(df_status[df_status["status"] == "Em andamento"])
+    resolvidos = len(df_status[df_status["status"] == "Resolvido"])
     retrabalho = int(df_f["reaberturas"].sum())
     tempo_medio = df_f[df_f["tempo_resolucao"].notna()]["tempo_resolucao"].mean()
     k1.metric("Total", total)
@@ -488,7 +495,7 @@ def tela_dashboard():
     df_te = df_f.groupby("tipo").size().reset_index(name="Quantidade").sort_values("Quantidade",ascending=False).rename(columns={"tipo":"Tipo"})
     df_se = df_f.groupby("setor").size().reset_index(name="Quantidade").sort_values("Quantidade",ascending=False).rename(columns={"setor":"Setor"})
     df_ee = df_f.groupby("empresa").size().reset_index(name="Quantidade").rename(columns={"empresa":"Empresa"})
-    df_ste = df_f.groupby("status").size().reset_index(name="Quantidade").rename(columns={"status":"Status"})
+    df_ste = df_status.groupby("status").size().reset_index(name="Quantidade").rename(columns={"status":"Status"})
 
     df_notif_total = None
     df_notif_tipo = None
