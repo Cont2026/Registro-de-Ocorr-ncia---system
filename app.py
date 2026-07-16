@@ -5,6 +5,9 @@ from database.connection import init_db, run_query
 # Tipo informativo que NÃO entra em contadores de pendentes (não tem ciclo de status).
 TIPO_FECHAMENTO = "INFORMAR ENTREGÁVEIS"
 
+# Domínios de e-mail aceitos no login. Para liberar um novo domínio, basta adicioná-lo aqui.
+DOMINIOS_PERMITIDOS = ("@grupolle.com.br", "@lleferragens.com.br")
+
 st.set_page_config(page_title="ROC - Registro de Ocorrencias Contabeis", page_icon="📋", layout="wide", initial_sidebar_state="expanded")
 
 try:
@@ -126,8 +129,8 @@ def tela_login():
             entrar = st.form_submit_button("Entrar", use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
         if entrar:
-            if not email.strip().endswith("@grupolle.com.br"):
-                st.error("Use seu e-mail corporativo @grupolle.com.br")
+            if not email.strip().lower().endswith(DOMINIOS_PERMITIDOS):
+                st.error("Use seu e-mail corporativo (@grupolle.com.br ou @lleferragens.com.br)")
             else:
                 usuario = buscar_usuario(email.strip().lower(), senha.strip())
                 if usuario:
