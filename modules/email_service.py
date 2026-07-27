@@ -177,6 +177,20 @@ def tabela_row(label, valor, alt=False):
         <td style="padding:8px;background:{bg};color:#333;">{valor}</td>
     </tr>"""
 
+def bloco_mensagem(mensagem, titulo="💬 Mensagem enviada junto com a atualização"):
+    """Caixa com o texto da mensagem, usada quando a atualização de status vem
+    acompanhada de uma mensagem no chat — assim sai 1 e-mail só, com as duas
+    informações, em vez de dois e-mails quase simultâneos."""
+    txt = (mensagem or "").strip()
+    if not txt:
+        return ""
+    return f"""
+            <div style="margin-top:16px;padding:16px;background:#F0F4FF;border-radius:8px;border-left:4px solid #041747;">
+                <p style="margin:0 0 6px;font-size:12px;font-weight:700;color:#041747;">{titulo}</p>
+                <p style="margin:0;font-size:14px;color:#041747;font-style:italic;">"{txt}"</p>
+            </div>
+    """
+
 def email_novo_chamado(email_contabilidade, protocolo, setor, tipo, prioridade, parceiro, numero_nota, solicitante, anexos=None, nu_financeiro="", nu_nota="", atrasos=""):
     assunto = f"ROC — Novo Chamado {protocolo}"
     cor_prio = "#ef4444" if prioridade == "Urgente" else "#22c55e"
@@ -210,11 +224,14 @@ def email_novo_chamado(email_contabilidade, protocolo, setor, tipo, prioridade, 
     """
     return enviar_email(email_contabilidade, assunto, corpo, protocolo, "novo_chamado", anexos=anexos)
 
-def email_atualizacao_chamado(email_setor, protocolo, novo_status, setor="", atendente=""):
+def email_atualizacao_chamado(email_setor, protocolo, novo_status, setor="", atendente="", mensagem=""):
+    """Avisa a mudança de status. Quando 'mensagem' vem preenchida, o texto do chat
+    entra no MESMO e-mail — evitando dois disparos para as mesmas pessoas."""
     cores = {"Aberto":"#ef4444","Em andamento":"#f59e0b","Resolvido":"#22c55e","Cancelado":"#6b7280"}
     cor = cores.get(novo_status, "#041747")
     assunto = f"ROC — Chamado {protocolo} atualizado para {novo_status}"
     linha_atend = tabela_row("Atualizado por", atendente) if atendente else ""
+    caixa_msg = bloco_mensagem(mensagem)
     corpo = f"""
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;padding:20px;border-radius:12px;">
         {cabecalho_email()}
@@ -226,6 +243,7 @@ def email_atualizacao_chamado(email_setor, protocolo, novo_status, setor="", ate
                 {linha_atend}
                 {tabela_row("Data", datetime.now(BRASILIA).strftime("%d/%m/%Y às %H:%M"), True)}
             </table>
+            {caixa_msg}
             {botao_chamado(protocolo)}
         </div>
         {rodape_email()}
@@ -233,9 +251,12 @@ def email_atualizacao_chamado(email_setor, protocolo, novo_status, setor="", ate
     """
     return enviar_email(email_setor, assunto, corpo, protocolo, "atualizacao_status")
 
-def email_conclusao_chamado(email_contabilidade, email_setor, protocolo, tipo, data_conclusao, atendente=""):
+def email_conclusao_chamado(email_contabilidade, email_setor, protocolo, tipo, data_conclusao, atendente="", mensagem=""):
+    """Avisa a conclusão. Quando 'mensagem' vem preenchida, o texto do chat entra
+    no MESMO e-mail — evitando dois disparos para as mesmas pessoas."""
     assunto = f"ROC — Chamado {protocolo} concluído"
     linha_atend = tabela_row("Concluído por", atendente, True) if atendente else ""
+    caixa_msg = bloco_mensagem(mensagem, "💬 Mensagem enviada junto com a conclusão")
     corpo = f"""
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;padding:20px;border-radius:12px;">
         {cabecalho_email()}
@@ -248,6 +269,7 @@ def email_conclusao_chamado(email_contabilidade, email_setor, protocolo, tipo, d
                 {tabela_row("Data de Conclusão", data_conclusao)}
                 {linha_atend}
             </table>
+            {caixa_msg}
             {botao_chamado(protocolo)}
         </div>
         {rodape_email()}
