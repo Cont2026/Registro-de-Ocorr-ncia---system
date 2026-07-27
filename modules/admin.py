@@ -239,9 +239,10 @@ def tela_admin():
 
     with aba[4]:
         st.subheader("🔄 Trocar Setor Responsável")
-        st.markdown("Transfere um chamado **ativo** (Aberto ou Em andamento) para outro setor responsável. "
-                    "O novo setor e o setor anterior são avisados por e-mail. "
-                    "Use quando a pendência for, na verdade, de outro setor.")
+        st.markdown("Transfere **qualquer chamado** (Aberto, Em andamento, Resolvido ou Cancelado) para outro "
+                    "setor responsável. O novo setor e o setor anterior são avisados por e-mail. "
+                    "Use quando a pendência for, na verdade, de outro setor. "
+                    "Os chamados **ativos** aparecem primeiro; em seguida os **encerrados**.")
         st.markdown("---")
 
         # Setores ativos disponíveis para receber o chamado
@@ -250,20 +251,28 @@ def tela_admin():
             ORDER BY setor_nome""", fetch=True)
         lista_setores = [s[0] for s in setores_ativos] if setores_ativos else []
 
-        ativos = run_query("""SELECT protocolo, setor, tipo_inconsistencia, empresa, status,
+        # Todos os chamados: ativos primeiro, encerrados depois (cada grupo do mais recente ao mais antigo)
+        chamados_troca = run_query("""SELECT protocolo, setor, tipo_inconsistencia, empresa, status,
             nome_parceiro, numero_nota, aberto_em
-            FROM chamados WHERE status IN ('Aberto','Em andamento') ORDER BY aberto_em DESC""", fetch=True)
+            FROM chamados
+            ORDER BY CASE WHEN status IN ('Aberto','Em andamento') THEN 0 ELSE 1 END,
+                     aberto_em DESC""", fetch=True)
 
-        if not ativos:
-            st.info("Não há chamados ativos (Aberto/Em andamento) para transferir.")
+        if not chamados_troca:
+            st.info("Nenhum chamado registrado ainda.")
         elif not lista_setores:
             st.warning("Nenhum setor ativo cadastrado para receber a transferência.")
         else:
+            qtd_ativos_t = sum(1 for c in chamados_troca if c[4] in ("Aberto", "Em andamento"))
+            qtd_encerrados_t = len(chamados_troca) - qtd_ativos_t
+            st.caption(f"Total: {len(chamados_troca)} chamado(s) · Ativos: {qtd_ativos_t} · "
+                       f"Encerrados/Outros: {qtd_encerrados_t}")
+
             busca_t = st.text_input("🔎 Buscar chamado (protocolo, setor, parceiro ou NF)", key="busca_troca",
                 placeholder="ex: ROC-202606-0011 ou MKM")
             termo_t = (busca_t or "").strip().lower()
             mostrados_t = 0
-            for (protocolo, setor, tipo_inc, empresa, status, parceiro, nf, aberto_em) in ativos:
+            for (protocolo, setor, tipo_inc, empresa, status, parceiro, nf, aberto_em) in chamados_troca:
                 if termo_t:
                     alvo = " ".join(str(x or "").lower() for x in [protocolo, setor, tipo_inc, empresa, status, parceiro, nf])
                     if termo_t not in alvo:
@@ -320,7 +329,7 @@ def tela_admin():
                 st.markdown("<hr style='margin:6px 0;border:none;border-top:1px solid #eee;'>", unsafe_allow_html=True)
 
             if termo_t and mostrados_t == 0:
-                st.info("Nenhum chamado ativo encontrado para essa busca.")
+                st.info("Nenhum chamado encontrado para essa busca.")
 
         st.markdown("---")
         st.subheader("🗑️ Excluir Chamados")
