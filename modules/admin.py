@@ -400,10 +400,14 @@ def tela_admin():
                 st.info("Nenhum chamado encontrado para essa busca.")
 
     with aba[5]:
-        st.subheader("📦 Exportar e Limpar Encerrados")
+        st.subheader("📦 Exportar e Limpar (Encerrados + Entregáveis)")
         st.markdown("Gera uma planilha Excel (abas **Chamados** e **Mensagens**) com os chamados "
-                    "**Resolvidos** e **Cancelados**, para servir de histórico. Depois de **baixar** a planilha, "
-                    "o botão de apagar é liberado. Chamados **Abertos** e **Em andamento** NUNCA são tocados. "
+                    "**Resolvidos** e **Cancelados** e com **todos os registros de entregáveis** "
+                    "(INFORMAR ENTREGÁVEIS), para servir de histórico. Depois de **baixar** a planilha, "
+                    "o botão de apagar é liberado. Chamados de inconsistência **Abertos** e "
+                    "**Em andamento** NUNCA são tocados. "
+                    "⚠️ Atenção: os **entregáveis são apagados independente do status** "
+                    "(Aberto, Em andamento ou Concluído), inclusive os do mês atual. "
                     "Os arquivos anexados não vão na planilha — apenas o **nome** deles fica registrado.")
         st.markdown("---")
 
@@ -411,13 +415,20 @@ def tela_admin():
             prioridade, nome_parceiro, numero_nota, valor, solicitante, atendente, financeiro_baixado,
             nf_retorna, data_entrada, data_negociacao, aberto_em, atendido_em, resolvido_em, observacao,
             num_unico_financeiro, num_unico_nota, atrasos_entregaveis, arquivo_nome
-            FROM chamados WHERE status IN ('Resolvido','Cancelado') ORDER BY aberto_em""", fetch=True)
+            FROM chamados
+            WHERE status IN ('Resolvido','Cancelado')
+               OR tipo_nota = 'INFORMAR ENTREGÁVEIS'
+            ORDER BY aberto_em""", fetch=True)
 
         qtd = len(encerrados) if encerrados else 0
-        st.markdown(f"**Chamados encerrados (Resolvidos/Cancelados) no momento: {qtd}**")
+        qtd_entreg = sum(1 for r in encerrados if (r[4] or "") == "INFORMAR ENTREGÁVEIS") if encerrados else 0
+        qtd_enc = qtd - qtd_entreg
+        st.markdown(f"**Registros a exportar/limpar no momento: {qtd}**")
+        st.caption(f"Encerrados (Resolvidos/Cancelados): {qtd_enc} · "
+                   f"Entregáveis (todos os status): {qtd_entreg}")
 
         if qtd == 0:
-            st.info("Não há chamados encerrados para exportar.")
+            st.info("Não há chamados encerrados nem entregáveis para exportar.")
         else:
             if st.button("📊 Gerar planilha dos encerrados", use_container_width=True, key="btn_gerar_export"):
                 try:
@@ -430,7 +441,9 @@ def tela_admin():
                     msgs = run_query("""SELECT chamado_protocolo, autor, perfil, mensagem, enviado_em, anexo_nome
                         FROM mensagens
                         WHERE chamado_protocolo IN (
-                            SELECT protocolo FROM chamados WHERE status IN ('Resolvido','Cancelado'))
+                            SELECT protocolo FROM chamados
+                            WHERE status IN ('Resolvido','Cancelado')
+                               OR tipo_nota = 'INFORMAR ENTREGÁVEIS')
                         ORDER BY chamado_protocolo, enviado_em""", fetch=True) or []
 
                     def _cel(v):
@@ -467,8 +480,9 @@ def tela_admin():
                     st.session_state["export_xlsx"] = buffer.getvalue()
                     st.session_state["export_protocolos"] = protocolos
                     st.session_state["export_baixado"] = False
-                    st.success(f"✅ Planilha gerada com {qtd} chamado(s) e {len(msgs)} mensagem(ns). "
-                               "Baixe abaixo para liberar a limpeza.")
+                    st.success(f"✅ Planilha gerada com {qtd} registro(s) "
+                               f"({qtd_enc} encerrado(s) + {qtd_entreg} entregável(is)) e "
+                               f"{len(msgs)} mensagem(ns). Baixe abaixo para liberar a limpeza.")
                 except ModuleNotFoundError:
                     st.error("⚠️ A biblioteca 'openpyxl' não está instalada. Adicione 'openpyxl' ao requirements.txt e reinicie o app.")
                 except Exception as e:
@@ -488,14 +502,15 @@ def tela_admin():
             if st.session_state.get("export_baixado"):
                 st.markdown("---")
                 protos = st.session_state.get("export_protocolos", [])
-                st.markdown(f"✅ Planilha baixada. Agora você pode **apagar os {len(protos)} chamado(s) encerrado(s)** "
-                            "que foram exportados. Os Abertos/Em andamento não serão tocados.")
-                if st.button("🗑️ Apagar encerrados do banco", use_container_width=True, key="btn_apagar_encerrados"):
+                st.markdown(f"✅ Planilha baixada. Agora você pode **apagar os {len(protos)} registro(s)** "
+                            "que foram exportados (chamados encerrados + entregáveis). Os chamados de "
+                            "inconsistência Abertos/Em andamento não serão tocados.")
+                if st.button("🗑️ Apagar registros exportados do banco", use_container_width=True, key="btn_apagar_encerrados"):
                     st.session_state["confirmar_limpeza"] = True
 
                 if st.session_state.get("confirmar_limpeza"):
-                    st.warning("⚠️ Tem certeza? Esta ação é permanente. Os chamados encerrados exportados "
-                               "(e suas mensagens) serão removidos do banco.")
+                    st.warning("⚠️ Tem certeza? Esta ação é permanente. Os registros exportados — chamados "
+                               "encerrados e **todos os entregáveis** (e suas mensagens) — serão removidos do banco.")
                     lc1, lc2 = st.columns(2)
                     with lc1:
                         if st.button("Sim, apagar", use_container_width=True, type="primary", key="limpeza_sim"):
@@ -512,7 +527,7 @@ def tela_admin():
                                 st.session_state["export_xlsx"] = None
                                 st.session_state["export_protocolos"] = []
                                 st.cache_data.clear()
-                                st.success(f"✅ {apagados} chamado(s) encerrado(s) removido(s) do banco.")
+                                st.success(f"✅ {apagados} registro(s) removido(s) do banco.")
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Não foi possível apagar: {type(e).__name__}: {e}")
