@@ -153,15 +153,32 @@ def carregar_setores_disponiveis(excluir=None):
         lista = [s for s in lista if s != excluir]
     return lista
 
+@st.cache_data(ttl=60)
+def carregar_mapa_copias():
+    """Traz TODAS as cópias de uma vez e monta {protocolo: [setores]}.
+    Antes era uma consulta por chamado: numa lista de 25 chamados isso virava
+    25 idas ao banco. Agora é 1 consulta, com cache de 60s."""
+    rows = run_query("SELECT protocolo, setor FROM chamados_copia ORDER BY protocolo, setor", fetch=True)
+    mapa = {}
+    if rows:
+        for p, s in rows:
+            mapa.setdefault(p, []).append(s)
+    return mapa
+
 def carregar_copias(protocolo):
-    rows = run_query("SELECT setor FROM chamados_copia WHERE protocolo=%s ORDER BY setor", (protocolo,), fetch=True)
-    return [r[0] for r in rows] if rows else []
+    """Cópias de um chamado, lidas do mapa em cache (sem consulta nova ao banco)."""
+    return list(carregar_mapa_copias().get(protocolo, []))
 
 def salvar_copias(protocolo, setores):
     run_query("DELETE FROM chamados_copia WHERE protocolo=%s", (protocolo,))
     for s in setores:
         if s and s.strip():
             run_query("INSERT INTO chamados_copia (protocolo, setor) VALUES (%s, %s)", (protocolo, s.strip()))
+    # Limpa o mapa em cache para a alteração aparecer na hora.
+    try:
+        carregar_mapa_copias.clear()
+    except:
+        pass
 
 @st.cache_data(ttl=60)
 def carregar_meus_chamados(setor):
@@ -191,6 +208,16 @@ def carregar_anexo_dados(protocolo):
     if r and r[0]:
         return r[0][0], r[0][1]
     return None, None
+
+def formatar_tamanho(tam_base64):
+    """Converte o tamanho do texto base64 no tamanho aproximado do arquivo real."""
+    try:
+        b = float(tam_base64) * 0.75
+    except:
+        return "?"
+    if b >= 1_048_576:
+        return f"{b / 1_048_576:.1f} MB"
+    return f"{b / 1024:.0f} KB"
 
 def buscar_email_contabilidade():
     rows = run_query("SELECT email FROM usuarios WHERE perfil='contabilidade' AND ativo=1 LIMIT 1", fetch=True)
@@ -961,14 +988,16 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
                 st.markdown(f"**⏰ Atrasos de entregáveis:** {atrasos_txt}")
             if obs_txt:
                 st.markdown(f"**📝 Observação:** {obs_txt}")
-            # Anexos: para economizar tráfego, anexos GRANDES só são buscados no
-            # banco quando o usuário clica em "Carregar anexo". Anexos pequenos
-            # continuam aparecendo direto com o botão de baixar (1 clique).
-            LIMITE_AUTO = 2_800_000  # ~2 MB de arquivo (em base64). Acima disso, carrega sob demanda.
+            # Anexos: o conteúdo do arquivo NUNCA é buscado automaticamente, porque o
+            # Streamlit executa o corpo do expander mesmo quando ele está recolhido —
+            # ou seja, carregar sozinho significaria baixar o anexo de TODOS os chamados
+            # da lista a cada abertura de tela, sem ninguém pedir. Agora sempre exige
+            # um clique em "Carregar anexo".
             if anexo_tam and anexo_tam > 0:
                 st.markdown("**📎 Anexos:**")
                 chave_load = f"load_anexo_{protocolo}"
-                if anexo_tam <= LIMITE_AUTO or st.session_state.get(chave_load):
+                tam_txt = formatar_tamanho(anexo_tam)
+                if st.session_state.get(chave_load):
                     arq_dados, arq_nome2 = carregar_anexo_dados(protocolo)
                     anexos_ch = desempacotar_anexos(arq_dados, arq_nome2 or arq_nome)
                     for i_an, an in enumerate(anexos_ch):
@@ -982,9 +1011,11 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
                         except:
                             st.caption(f"📎 {an.get('nome') or 'anexo'} (não foi possível carregar)")
                 else:
-                    tam_mb = (anexo_tam * 0.75) / 1_048_576  # tamanho aprox. do arquivo real
-                    st.caption(f"Este chamado tem anexo de aproximadamente {tam_mb:.0f} MB.")
-                    if st.button(f"📎 Carregar anexo (~{tam_mb:.0f} MB)", key=f"btnload_{protocolo}"):
+                    if arq_nome:
+                        st.caption(f"{arq_nome} · aproximadamente {tam_txt}")
+                    else:
+                        st.caption(f"Anexo de aproximadamente {tam_txt}")
+                    if st.button(f"📎 Carregar anexo (~{tam_txt})", key=f"btnload_{protocolo}"):
                         st.session_state[chave_load] = True
                         st.rerun()
 
