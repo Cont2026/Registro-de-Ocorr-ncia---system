@@ -320,7 +320,77 @@ def _fmt_valor(v):
     except:
         return str(v)
 
-def exibir_chat(protocolo, setor_chamado, status=None):
+def montar_autor(nome):
+    """Assinatura da movimentação: login do setor + nome da pessoa.
+    Como o login é compartilhado pelo setor, é o nome digitado que identifica
+    quem de fato registrou a mensagem ou mudou o status."""
+    login = str(st.session_state.get("usuario", "") or "").strip()
+    n = (nome or "").strip()
+    if login and n:
+        return f"{login} · {n}"
+    return n or login
+
+def sou_autor(autor, usuario_atual):
+    """Diz se a mensagem foi escrita pelo login que está usando o sistema agora
+    (usado só para alinhar a bolha do chat à direita). Aceita o formato novo
+    'Setor · Pessoa' e o formato antigo, em que o autor era só o login."""
+    a = str(autor or "")
+    u = str(usuario_atual or "")
+    if not u:
+        return False
+    return a == u or a.startswith(f"{u} · ")
+
+def salvar_movimentacao(protocolo, setor_chamado, tipo, status_atual,
+                        novo_status, nome, texto, arquivos):
+    """Registra numa só ação a mensagem e/ou a mudança de status e dispara UM
+    e-mail com tudo o que aconteceu (em vez de dois disparos quase simultâneos
+    para as mesmas pessoas). Devolve (ok, aviso)."""
+    nome = (nome or "").strip()
+    texto = (texto or "").strip()
+    tem_anexo = bool(arquivos)
+    status_mudou = bool(novo_status) and novo_status != status_atual
+
+    if not status_mudou and not texto and not tem_anexo:
+        return False, "Escreva uma mensagem, anexe um arquivo ou altere o status."
+    if not nome:
+        return False, "Informe seu nome — toda movimentação precisa ficar identificada."
+
+    autor = montar_autor(nome)
+
+    # 1) Mensagem no chat (com anexos, se houver)
+    if texto or tem_anexo:
+        anexo_dados, anexo_nome = empacotar_anexos(arquivos) if tem_anexo else (None, None)
+        enviar_mensagem_db(protocolo, autor, st.session_state.get("perfil", "setor"),
+                           texto, anexo_nome, anexo_dados)
+
+    # 2) Mudança de status (o nome digitado vira o atendente)
+    if status_mudou:
+        agora = datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S")
+        run_query("""UPDATE chamados SET status=%s, atendente=%s, atendido_em=COALESCE(atendido_em,%s),
+            resolvido_em=CASE WHEN %s='Resolvido' THEN %s ELSE resolvido_em END WHERE protocolo=%s""",
+            (novo_status, nome, agora, novo_status, agora, protocolo))
+
+    # 3) UM e-mail só, com o que houver
+    try:
+        destinos = list(emails_interessados(protocolo, setor_chamado, st.session_state.get("email")))
+        if destinos:
+            texto_email = texto if texto else ("[anexo enviado]" if tem_anexo else "")
+            if status_mudou:
+                data_br = datetime.now(BRASILIA).strftime("%d/%m/%Y às %H:%M")
+                if novo_status == "Resolvido":
+                    email_conclusao_chamado(None, destinos, protocolo, tipo, data_br,
+                                            atendente=nome, mensagem=texto_email)
+                else:
+                    email_atualizacao_chamado(destinos, protocolo, novo_status, setor_chamado,
+                                              atendente=nome, mensagem=texto_email)
+            else:
+                email_nova_mensagem(destinos, protocolo, autor, texto_email)
+    except:
+        pass
+
+    return True, ""
+
+def exibir_chat(protocolo, setor_chamado, status=None, com_status=False, tipo=""):
     st.markdown("#### 💬 Acompanhamento")
     mensagens = carregar_mensagens(protocolo)
     if not mensagens:
@@ -328,7 +398,7 @@ def exibir_chat(protocolo, setor_chamado, status=None):
     else:
         usuario_atual = st.session_state.get("usuario")
         for idx, (autor, perfil, mensagem, enviado_em, anexo_nome, anexo_dados) in enumerate(mensagens):
-            is_mine = (autor == usuario_atual)
+            is_mine = sou_autor(autor, usuario_atual)
             alinha = "flex-end" if is_mine else "flex-start"
             if is_mine:
                 bg = "#041747" if perfil == "contabilidade" else "#1d4ed8"
@@ -369,38 +439,78 @@ def exibir_chat(protocolo, setor_chamado, status=None):
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+    OPCOES_STATUS = ["Aberto", "Em andamento", "Resolvido", "Cancelado"]
+    TIPOS_ARQ = ["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"]
+    encerrado = str(status or "") in ("Resolvido", "Cancelado")
+
     # Chamado encerrado (Resolvido ou Cancelado): mostra o histórico acima,
-    # mas não permite novas mensagens — exibe um aviso no lugar do formulário.
-    if str(status or "") in ("Resolvido", "Cancelado"):
+    # mas não permite novas mensagens. A contabilidade ainda pode corrigir o
+    # status, então nesse caso aparece um formulário só de status.
+    if encerrado:
         st.markdown(
             f"<div style='background:#f0f0f0;border:1px solid #d9d9d9;border-radius:8px;"
             f"padding:14px 16px;text-align:center;color:#666;font-size:13px;'>"
             f"🔒 Este chamado está <strong>{status}</strong> e foi encerrado. "
             f"Não é possível enviar novas mensagens.</div>",
             unsafe_allow_html=True)
+        if com_status:
+            with st.form(key=f"statusonly_{protocolo}"):
+                idx = OPCOES_STATUS.index(status) if status in OPCOES_STATUS else 0
+                novo_status = st.selectbox("Corrigir status", OPCOES_STATUS, index=idx)
+                nome_resp = st.text_input("🙋 Seu nome *",
+                    placeholder="Quem está fazendo esta alteração?")
+                if st.form_submit_button("💾 Salvar status", use_container_width=True):
+                    if novo_status == status:
+                        st.warning("Selecione um status diferente do atual.")
+                    else:
+                        ok, aviso = salvar_movimentacao(protocolo, setor_chamado, tipo, status,
+                                                        novo_status, nome_resp, "", None)
+                        if not ok:
+                            st.warning(aviso)
+                        else:
+                            st.cache_data.clear()
+                            st.rerun()
         return
 
-    with st.form(key=f"chat_{protocolo}", clear_on_submit=True):
-        nova_msg = st.text_area("Nova mensagem", placeholder="Digite sua mensagem...", height=80, label_visibility="collapsed")
-        img = st.file_uploader("📎 Anexar arquivos (opcional)", type=["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"], accept_multiple_files=True, key=f"chat_img_{protocolo}")
-        if st.form_submit_button("📨 Enviar", use_container_width=True):
-            tem_texto = bool(nova_msg.strip())
-            tem_img = bool(img)
-            if not tem_texto and not tem_img:
-                st.warning("Digite uma mensagem ou anexe um arquivo antes de enviar.")
-            else:
-                anexo_dados, anexo_nome = empacotar_anexos(img) if tem_img else (None, None)
-                enviar_mensagem_db(protocolo, st.session_state.usuario, st.session_state.perfil,
-                                   nova_msg.strip(), anexo_nome, anexo_dados)
-                try:
-                    texto_email = nova_msg.strip() if tem_texto else "[anexo enviado]"
-                    destinos = emails_interessados(protocolo, setor_chamado, st.session_state.get("email"))
-                    if destinos:
-                        # 1 e-mail só (1º destinatário em "Para", os demais em CC)
-                        email_nova_mensagem(list(destinos), protocolo, st.session_state.usuario, texto_email)
-                except:
-                    pass
-                st.rerun()
+    # === FORMULÁRIO ÚNICO ===
+    # Uma ação só: mudar status (quando a contabilidade pode), escrever mensagem,
+    # anexar arquivo — em qualquer combinação, com um único botão e um único e-mail.
+    # O nome é SEMPRE obrigatório: o login é do setor, então é ele que identifica
+    # quem registrou a movimentação.
+    if com_status:
+        with st.form(key=f"movimentacao_{protocolo}", clear_on_submit=True):
+            idx = OPCOES_STATUS.index(status) if status in OPCOES_STATUS else 0
+            novo_status = st.selectbox("🔁 Status do chamado", OPCOES_STATUS, index=idx,
+                help="Deixe como está se você só quer enviar uma mensagem.")
+            nova_msg = st.text_area("Nova mensagem", placeholder="Digite sua mensagem (opcional)...",
+                height=80, label_visibility="collapsed")
+            img = st.file_uploader("📎 Anexar arquivos (opcional)", type=TIPOS_ARQ,
+                accept_multiple_files=True, key=f"chat_img_{protocolo}")
+            nome_resp = st.text_input("🙋 Seu nome *",
+                placeholder="Quem está registrando esta movimentação?")
+            if st.form_submit_button("💾 Salvar e enviar", use_container_width=True):
+                ok, aviso = salvar_movimentacao(protocolo, setor_chamado, tipo, status,
+                                                novo_status, nome_resp, nova_msg, img)
+                if not ok:
+                    st.warning(aviso)
+                else:
+                    st.cache_data.clear()
+                    st.rerun()
+    else:
+        with st.form(key=f"chat_{protocolo}", clear_on_submit=True):
+            nova_msg = st.text_area("Nova mensagem", placeholder="Digite sua mensagem...",
+                height=80, label_visibility="collapsed")
+            img = st.file_uploader("📎 Anexar arquivos (opcional)", type=TIPOS_ARQ,
+                accept_multiple_files=True, key=f"chat_img_{protocolo}")
+            nome_resp = st.text_input("🙋 Seu nome *",
+                placeholder="Quem está enviando esta mensagem?")
+            if st.form_submit_button("📨 Enviar", use_container_width=True):
+                ok, aviso = salvar_movimentacao(protocolo, setor_chamado, tipo, status,
+                                                None, nome_resp, nova_msg, img)
+                if not ok:
+                    st.warning(aviso)
+                else:
+                    st.rerun()
 
 
 def registrar_fechamento(parcial, observacao="", arquivos=None, atrasos="", empresa=""):
@@ -1019,39 +1129,9 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
                         st.session_state[chave_load] = True
                         st.rerun()
 
-        # Atualizar status (somente contabilidade) — não se aplica a INFORMAR ENTREGÁVEIS,
-        # pois é um registro informativo, sem ciclo de validação.
-        if eh_contabilidade and not eh_entregaveis:
-            st.markdown("---")
-            cs1, cs2 = st.columns(2)
-            with cs1:
-                novo_status = st.selectbox("Atualizar status", ["Aberto","Em andamento","Resolvido","Cancelado"],
-                    index=["Aberto","Em andamento","Resolvido","Cancelado"].index(status), key=f"s_{protocolo}")
-            with cs2:
-                atendente = st.text_input("🙋 Atendente da solicitação (seu nome)", key=f"atend_{protocolo}")
-            if st.button("💾 Salvar status", key=f"b_{protocolo}"):
-                if not atendente.strip():
-                    st.warning("⚠️ Informe o nome do atendente antes de salvar.")
-                    return
-                agora = datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S")
-                run_query("""UPDATE chamados SET status=%s, atendente=%s, atendido_em=COALESCE(atendido_em,%s),
-                    resolvido_em=CASE WHEN %s='Resolvido' THEN %s ELSE resolvido_em END WHERE protocolo=%s""",
-                    (novo_status, atendente.strip(), agora, novo_status, agora, protocolo))
-                try:
-                    destinos = emails_interessados(protocolo, setor)
-                    nome_atend = atendente.strip()
-                    data_br = datetime.now(BRASILIA).strftime("%d/%m/%Y às %H:%M")
-                    if destinos:
-                        # 1 e-mail só (1º destinatário em "Para", os demais em CC)
-                        if novo_status == "Resolvido":
-                            email_conclusao_chamado(None, list(destinos), protocolo, tipo, data_br, atendente=nome_atend)
-                        else:
-                            email_atualizacao_chamado(list(destinos), protocolo, novo_status, setor, atendente=nome_atend)
-                except:
-                    pass
-                st.cache_data.clear()
-                st.success("✅ Atualizado!")
-                st.rerun()
+        # O controle de status NÃO fica mais aqui: ele foi para o formulário único
+        # do Acompanhamento, no fim do chamado, junto com a mensagem e o anexo —
+        # uma ação só, um botão só, um e-mail só.
 
         # Editar setores em cópia (contabilidade ou o setor que abriu)
         eh_dono = (st.session_state.perfil != "contabilidade" and st.session_state.setor == setor)
@@ -1095,7 +1175,10 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
                         st.rerun()
 
         st.markdown("---")
-        exibir_chat(protocolo, setor, status)
+        # com_status: só a contabilidade altera status, e não em INFORMAR ENTREGÁVEIS
+        # (registro informativo, sem ciclo de validação).
+        exibir_chat(protocolo, setor, status,
+                    com_status=(eh_contabilidade and not eh_entregaveis), tipo=tipo)
 
 def tela_meus_chamados(protocolo_aberto=None):
     st.title("📋 Minhas Solicitações")
