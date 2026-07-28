@@ -4,12 +4,15 @@ from database.connection import run_query
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from modules.email_service import enviar_email, email_novo_chamado, email_setor_em_copia
-from modules.chamados import empacotar_anexos, desempacotar_anexos, anexos_para_email
+from modules.chamados import (empacotar_anexos, desempacotar_anexos, anexos_para_email,
+    validar_anexos, LABEL_ANEXO, LABEL_ANEXO_OBR)
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
 TIPO_FOLHA = "Folha de Pagamento"
 TIPO_FECHAMENTO = "INFORMAR ENTREGÁVEIS"
 TIPO_CONTA70 = "Divergência na conta 70"
+
+TIPOS_ARQ = ["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"]
 
 def buscar_setores():
     rows = run_query(
@@ -111,16 +114,18 @@ def criar_chamado_tratativa(setor_destino, empresa, tipo_inconsistencia, tipo_no
          (nu_financeiro or "").strip() or None, (nu_nota or "").strip() or None,
          (atrasos or "").strip() or None))
 
-    # Log para a lista "Chamados abertos pela Contabilidade"
+    # Registro informativo da lista "Chamados abertos pela Contabilidade".
+    # NÃO grava status: o acompanhamento acontece no próprio chamado (em Todos os
+    # Chamados), com status e chat. Aqui é só o aviso de que a Contabilidade abriu.
     try:
         run_query("""INSERT INTO solicitacoes_tratativa
             (setor_destino, empresa, tipo_inconsistencia, nome_parceiro, numero_nota,
-            tipo_nota, valor, observacao, criado_por, criado_em, status, num_unico_financeiro, num_unico_nota)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            tipo_nota, valor, observacao, criado_por, criado_em, num_unico_financeiro, num_unico_nota)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (setor_destino, empresa or "", tipo_inconsistencia, (nome_parceiro or "").strip(),
              (numero_nota or "").strip(), tipo_nota or "", (valor or "").strip(),
              (observacao or "").strip(), solicitante,
-             datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), "Em andamento",
+             datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"),
              (nu_financeiro or "").strip() or None, (nu_nota or "").strip() or None))
     except:
         pass
@@ -258,7 +263,7 @@ def tela_tratativa():
             help="Esses setores recebem aviso do chamado em cópia.")
         obs_fe = st.text_area("📝 Observação (opcional)", placeholder="Informações adicionais sobre a entrega...", key="trat_fech_obs")
         atrasos_fe = st.text_area("⏰ Atrasos de entregáveis (opcional)", placeholder="Descreva eventuais atrasos de entregáveis...", key="trat_fech_atrasos")
-        arq_fe = st.file_uploader("📎 Anexar documentos (opcional)", type=["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"], accept_multiple_files=True, key="trat_fech_arq")
+        arq_fe = st.file_uploader(LABEL_ANEXO, type=TIPOS_ARQ, accept_multiple_files=True, key="trat_fech_arq")
 
         st.markdown("---")
         if st.button("📨 Abrir Chamado para o(s) Setor(es)", use_container_width=True, key="trat_fech_enviar"):
@@ -268,6 +273,10 @@ def tela_tratativa():
             if not empresa_fe: erros.append("Empresa")
             if erros:
                 st.error(f"Preencha: {', '.join(erros)}")
+                return
+            ok_anexo, aviso_anexo = validar_anexos(arq_fe)
+            if not ok_anexo:
+                st.error(aviso_anexo)
                 return
             tipo_final = f"{TIPO_FECHAMENTO} - {parcial}"
             criados = abrir_chamados_para_setores(setores_sel, copia_fe, mapa_email,
@@ -330,7 +339,7 @@ def tela_tratativa():
         solicitante_f = st.text_input("👤 Nome do Solicitante *", key="trat_folha_solic")
         copia_f = st.multiselect("👥 Setores em cópia (opcional)", nomes_copia, key="trat_folha_copia",
             help="Esses setores recebem aviso do chamado em cópia.")
-        arq_f = st.file_uploader("📎 Anexos *", type=["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"], accept_multiple_files=True, key="trat_folha_arq")
+        arq_f = st.file_uploader(LABEL_ANEXO_OBR, type=TIPOS_ARQ, accept_multiple_files=True, key="trat_folha_arq")
         obs_f = st.text_area("📝 Observacao *", placeholder="Descreva a solicitação...", key="trat_folha_obs")
 
         st.markdown("---")
@@ -346,6 +355,10 @@ def tela_tratativa():
             if not obs_f.strip(): erros.append("Observacao")
             if erros:
                 st.error(f"Preencha: {', '.join(erros)}")
+                return
+            ok_anexo, aviso_anexo = validar_anexos(arq_f)
+            if not ok_anexo:
+                st.error(aviso_anexo)
                 return
             inc_final = f"Outros: {inc_f_outros.strip()}" if inc_f == "Outros" else inc_f
             criados = abrir_chamados_para_setores(setores_sel, copia_f, mapa_email,
@@ -420,8 +433,7 @@ def tela_tratativa():
         solicitante_c70 = st.text_input("🙋 Nome do Solicitante *", key="trat_c70_solic")
         copia_c70 = st.multiselect("👥 Setores em cópia (opcional)", nomes_copia, key="trat_c70_copia",
             help="Esses setores recebem aviso do chamado em cópia.")
-        arq_c70 = st.file_uploader("📎 Anexos *",
-            type=["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"],
+        arq_c70 = st.file_uploader(LABEL_ANEXO_OBR, type=TIPOS_ARQ,
             accept_multiple_files=True, key="trat_c70_arq")
         obs_c70 = st.text_area("📝 Observação *", placeholder="Descreva a divergência...", key="trat_c70_obs")
 
@@ -435,6 +447,10 @@ def tela_tratativa():
             if not obs_c70.strip(): erros.append("Observação")
             if erros:
                 st.error(f"Preencha: {', '.join(erros)}")
+                return
+            ok_anexo, aviso_anexo = validar_anexos(arq_c70)
+            if not ok_anexo:
+                st.error(aviso_anexo)
                 return
             criados = abrir_chamados_para_setores(setores_sel, copia_c70, mapa_email,
                 empresa=empresa_c70, tipo_inconsistencia=TIPO_CONTA70, tipo_nota=tipo_nota,
@@ -514,7 +530,7 @@ def tela_tratativa():
             nu_nota = st.text_input("🔢 NU Nota (opcional)")
         copia_sel = st.multiselect("👥 Setores em cópia (opcional)", nomes_copia,
             help="Esses setores recebem aviso do chamado em cópia.")
-        arquivo = st.file_uploader("📎 Anexos (opcional)", type=["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"], accept_multiple_files=True)
+        arquivo = st.file_uploader(LABEL_ANEXO, type=TIPOS_ARQ, accept_multiple_files=True)
         observacao = st.text_area("📝 Observacao para o setor *",
             placeholder="Descreva a inconsistencia identificada e o que o setor deve fazer...")
         enviar = st.form_submit_button("📨 Abrir Chamado para o Setor", use_container_width=True)
@@ -539,6 +555,11 @@ def tela_tratativa():
             st.error(f"Preencha: {', '.join(erros)}")
             return
 
+        ok_anexo, aviso_anexo = validar_anexos(arquivo)
+        if not ok_anexo:
+            st.error(aviso_anexo)
+            return
+
         tipo_final = f"Outros: {tipo_outros_desc.strip()}" if tipo == "Outros" else (tipo or "")
 
         criados = abrir_chamados_para_setores(setores_sel, copia_sel, mapa_email,
@@ -561,23 +582,29 @@ def tela_tratativa():
     _lista_enviados()
 
 def _lista_enviados():
+    """Lista informativa: registra que a Contabilidade abriu o chamado para o setor.
+    NÃO mostra status — o acompanhamento (status e chat) acontece no próprio chamado,
+    em 'Todos os Chamados'. Aqui o status ficaria eternamente 'Em andamento', porque
+    nada nesta tela encerra o registro."""
     st.subheader("📋 Chamados abertos pela Contabilidade")
+    st.caption("Registro informativo de aberturas feitas pela Contabilidade. "
+               "O andamento de cada chamado é acompanhado em **Todos os Chamados**.")
     solicitacoes = run_query("""SELECT setor_destino, empresa, tipo_inconsistencia,
-        nome_parceiro, numero_nota, status, criado_em
+        nome_parceiro, numero_nota, criado_por, criado_em
         FROM solicitacoes_tratativa ORDER BY criado_em DESC LIMIT 50""", fetch=True)
     if not solicitacoes:
         st.info("Nenhum chamado aberto pela Contabilidade ainda.")
         return
     for s in solicitacoes:
-        setor_d, emp, tipo_i, parceiro, nf, status, criado_em = s
-        cor = "#f59e0b" if status == "Em andamento" else "#22c55e"
+        setor_d, emp, tipo_i, parceiro, nf, criado_por, criado_em = s
+        origem = f"Aberto pela Contabilidade · {criado_por}" if criado_por else "Aberto pela Contabilidade"
         st.markdown(f"""
         <div style='background:white;border:1px solid #e8e8e8;border-radius:8px;
         padding:12px 16px;margin-bottom:6px;'>
-            <div style='display:flex;justify-content:space-between;align-items:center;'>
+            <div style='display:flex;justify-content:space-between;align-items:center;gap:12px;'>
                 <span style='font-size:13px;font-weight:600;color:#041747;'>
                 {setor_d} — {parceiro or "—"} | NF: {nf or "—"}</span>
-                <span style='font-size:12px;color:{cor};font-weight:600;'>{status}</span>
+                <span style='font-size:11px;color:#666;font-weight:600;white-space:nowrap;'>📤 {origem}</span>
             </div>
             <p style='font-size:12px;color:#666;margin:4px 0 0;'>
             Empresa: {emp or "—"} · Tipo: {tipo_i or "—"} · {fmt_data(criado_em)}</p>
