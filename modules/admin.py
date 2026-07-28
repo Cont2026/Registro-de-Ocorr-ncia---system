@@ -401,13 +401,15 @@ def tela_admin():
 
     with aba[5]:
         st.subheader("📦 Exportar e Limpar (Encerrados + Entregáveis + Tratativas)")
-        st.markdown("Gera uma planilha Excel (abas **Chamados**, **Mensagens** e **Tratativas**) "
-                    "com os chamados **Resolvidos** e **Cancelados**, com **todos os registros de "
-                    "entregáveis** (INFORMAR ENTREGÁVEIS) e com **todas as solicitações de tratativa**, "
-                    "para servir de histórico. Depois de **baixar** a planilha, o botão de apagar é "
-                    "liberado. Chamados de inconsistência **Abertos** e **Em andamento** NUNCA são tocados. "
-                    "⚠️ Atenção: **entregáveis e tratativas são apagados independente do status**, "
-                    "inclusive os do mês atual. "
+        st.markdown("Gera uma planilha Excel (abas **Chamados** e **Mensagens**) com os chamados "
+                    "**Resolvidos** e **Cancelados** e com **todos os registros de entregáveis** "
+                    "(INFORMAR ENTREGÁVEIS), para servir de histórico. Depois de **baixar** a planilha, "
+                    "o botão de apagar é liberado. Chamados de inconsistência **Abertos** e "
+                    "**Em andamento** NUNCA são tocados. "
+                    "⚠️ Atenção: os **entregáveis são apagados independente do status**, inclusive os "
+                    "do mês atual. "
+                    "As **solicitações de tratativa** também são apagadas, mas NÃO vão na planilha: "
+                    "cada tratativa já gerou um chamado, que é exportado na aba Chamados. "
                     "Os arquivos anexados não vão na planilha — apenas o **nome** deles fica registrado.")
         st.markdown("---")
 
@@ -421,21 +423,19 @@ def tela_admin():
             ORDER BY aberto_em""", fetch=True)
 
         # Solicitacoes de tratativa: registro informativo, sem ciclo de status — ficavam
-        # eternamente na tela dos setores porque nada as encerrava. Entram inteiras na
-        # exportacao e na limpeza.
-        tratativas = run_query("""SELECT id, setor_destino, empresa, tipo_inconsistencia, nome_parceiro,
-            numero_nota, tipo_nota, valor, observacao, criado_por, criado_em,
-            num_unico_financeiro, num_unico_nota
-            FROM solicitacoes_tratativa ORDER BY criado_em""", fetch=True) or []
+        # eternamente na tela porque nada as encerrava. Entram na LIMPEZA, mas nao na
+        # planilha: cada tratativa gerou um chamado, e e o chamado que vai na exportacao.
+        # Por isso aqui basta o id.
+        tratativas = run_query("SELECT id FROM solicitacoes_tratativa ORDER BY id", fetch=True) or []
 
         qtd = len(encerrados) if encerrados else 0
         qtd_entreg = sum(1 for r in encerrados if (r[4] or "") == "INFORMAR ENTREGÁVEIS") if encerrados else 0
         qtd_enc = qtd - qtd_entreg
         qtd_trat = len(tratativas)
-        st.markdown(f"**Registros a exportar/limpar no momento: {qtd + qtd_trat}**")
-        st.caption(f"Encerrados (Resolvidos/Cancelados): {qtd_enc} · "
-                   f"Entregáveis (todos os status): {qtd_entreg} · "
-                   f"Tratativas: {qtd_trat}")
+        st.markdown(f"**Registros a limpar no momento: {qtd + qtd_trat}**")
+        st.caption(f"Vão para a planilha — Encerrados (Resolvidos/Cancelados): {qtd_enc} · "
+                   f"Entregáveis (todos os status): {qtd_entreg}")
+        st.caption(f"Só são apagadas (já constam como chamados) — Tratativas: {qtd_trat}")
 
         if qtd == 0 and qtd_trat == 0:
             st.info("Não há chamados encerrados, entregáveis nem tratativas para exportar.")
@@ -485,25 +485,16 @@ def tela_admin():
                     for m in msgs:
                         ws2.append([_cel(v) for v in m])
 
-                    ws3 = wb.create_sheet("Tratativas")
-                    cab3 = ["ID", "Setor de Destino", "Empresa", "Tipo de Inconsistência", "Parceiro",
-                            "Número NF", "Tipo de Movimentação", "Valor", "Observação", "Criado por",
-                            "Criado em", "NU Financeiro", "NU Nota"]
-                    ws3.append(cab3)
-                    for c in ws3[1]:
-                        c.font = Font(bold=True)
-                    for t in tratativas:
-                        ws3.append([_cel(v) for v in t])
-
                     buffer = io.BytesIO()
                     wb.save(buffer)
                     st.session_state["export_xlsx"] = buffer.getvalue()
                     st.session_state["export_protocolos"] = protocolos
                     st.session_state["export_tratativas"] = [t[0] for t in tratativas]
                     st.session_state["export_baixado"] = False
-                    st.success(f"✅ Planilha gerada com {qtd + qtd_trat} registro(s) "
-                               f"({qtd_enc} encerrado(s) + {qtd_entreg} entregável(is) + "
-                               f"{qtd_trat} tratativa(s)) e {len(msgs)} mensagem(ns). "
+                    st.success(f"✅ Planilha gerada com {qtd} chamado(s) "
+                               f"({qtd_enc} encerrado(s) + {qtd_entreg} entregável(is)) e "
+                               f"{len(msgs)} mensagem(ns). "
+                               f"{qtd_trat} tratativa(s) serão apagadas junto, sem ir na planilha. "
                                f"Baixe abaixo para liberar a limpeza.")
                 except ModuleNotFoundError:
                     st.error("⚠️ A biblioteca 'openpyxl' não está instalada. Adicione 'openpyxl' ao requirements.txt e reinicie o app.")
@@ -525,17 +516,18 @@ def tela_admin():
                 st.markdown("---")
                 protos = st.session_state.get("export_protocolos", [])
                 trats = st.session_state.get("export_tratativas", [])
-                st.markdown(f"✅ Planilha baixada. Agora você pode **apagar os {len(protos) + len(trats)} "
-                            f"registro(s)** que foram exportados: {len(protos)} chamado(s) "
-                            f"(encerrados + entregáveis) e {len(trats)} tratativa(s). Os chamados de "
-                            "inconsistência Abertos/Em andamento não serão tocados.")
+                st.markdown(f"✅ Planilha baixada. Agora você pode **apagar {len(protos) + len(trats)} "
+                            f"registro(s)**: {len(protos)} chamado(s) exportados (encerrados + "
+                            f"entregáveis) e {len(trats)} tratativa(s). Os chamados de inconsistência "
+                            "Abertos/Em andamento não serão tocados.")
                 if st.button("🗑️ Apagar registros exportados do banco", use_container_width=True, key="btn_apagar_encerrados"):
                     st.session_state["confirmar_limpeza"] = True
 
                 if st.session_state.get("confirmar_limpeza"):
-                    st.warning("⚠️ Tem certeza? Esta ação é permanente. Os registros exportados — chamados "
-                               "encerrados, **todos os entregáveis** (e suas mensagens) e **todas as "
-                               "tratativas** — serão removidos do banco.")
+                    st.warning("⚠️ Tem certeza? Esta ação é permanente. Serão removidos do banco: os "
+                               "chamados encerrados e **todos os entregáveis** (com suas mensagens), que "
+                               "estão na planilha baixada, e **todas as tratativas**, que já constam "
+                               "como chamados na mesma planilha.")
                     lc1, lc2 = st.columns(2)
                     with lc1:
                         if st.button("Sim, apagar", use_container_width=True, type="primary", key="limpeza_sim"):
