@@ -400,14 +400,14 @@ def tela_admin():
                 st.info("Nenhum chamado encontrado para essa busca.")
 
     with aba[5]:
-        st.subheader("📦 Exportar e Limpar (Encerrados + Entregáveis)")
-        st.markdown("Gera uma planilha Excel (abas **Chamados** e **Mensagens**) com os chamados "
-                    "**Resolvidos** e **Cancelados** e com **todos os registros de entregáveis** "
-                    "(INFORMAR ENTREGÁVEIS), para servir de histórico. Depois de **baixar** a planilha, "
-                    "o botão de apagar é liberado. Chamados de inconsistência **Abertos** e "
-                    "**Em andamento** NUNCA são tocados. "
-                    "⚠️ Atenção: os **entregáveis são apagados independente do status** "
-                    "(Aberto, Em andamento ou Concluído), inclusive os do mês atual. "
+        st.subheader("📦 Exportar e Limpar (Encerrados + Entregáveis + Tratativas)")
+        st.markdown("Gera uma planilha Excel (abas **Chamados**, **Mensagens** e **Tratativas**) "
+                    "com os chamados **Resolvidos** e **Cancelados**, com **todos os registros de "
+                    "entregáveis** (INFORMAR ENTREGÁVEIS) e com **todas as solicitações de tratativa**, "
+                    "para servir de histórico. Depois de **baixar** a planilha, o botão de apagar é "
+                    "liberado. Chamados de inconsistência **Abertos** e **Em andamento** NUNCA são tocados. "
+                    "⚠️ Atenção: **entregáveis e tratativas são apagados independente do status**, "
+                    "inclusive os do mês atual. "
                     "Os arquivos anexados não vão na planilha — apenas o **nome** deles fica registrado.")
         st.markdown("---")
 
@@ -420,17 +420,27 @@ def tela_admin():
                OR tipo_nota = 'INFORMAR ENTREGÁVEIS'
             ORDER BY aberto_em""", fetch=True)
 
+        # Solicitacoes de tratativa: registro informativo, sem ciclo de status — ficavam
+        # eternamente na tela dos setores porque nada as encerrava. Entram inteiras na
+        # exportacao e na limpeza.
+        tratativas = run_query("""SELECT id, setor_destino, empresa, tipo_inconsistencia, nome_parceiro,
+            numero_nota, tipo_nota, valor, observacao, criado_por, criado_em,
+            num_unico_financeiro, num_unico_nota
+            FROM solicitacoes_tratativa ORDER BY criado_em""", fetch=True) or []
+
         qtd = len(encerrados) if encerrados else 0
         qtd_entreg = sum(1 for r in encerrados if (r[4] or "") == "INFORMAR ENTREGÁVEIS") if encerrados else 0
         qtd_enc = qtd - qtd_entreg
-        st.markdown(f"**Registros a exportar/limpar no momento: {qtd}**")
+        qtd_trat = len(tratativas)
+        st.markdown(f"**Registros a exportar/limpar no momento: {qtd + qtd_trat}**")
         st.caption(f"Encerrados (Resolvidos/Cancelados): {qtd_enc} · "
-                   f"Entregáveis (todos os status): {qtd_entreg}")
+                   f"Entregáveis (todos os status): {qtd_entreg} · "
+                   f"Tratativas: {qtd_trat}")
 
-        if qtd == 0:
-            st.info("Não há chamados encerrados nem entregáveis para exportar.")
+        if qtd == 0 and qtd_trat == 0:
+            st.info("Não há chamados encerrados, entregáveis nem tratativas para exportar.")
         else:
-            if st.button("📊 Gerar planilha dos encerrados", use_container_width=True, key="btn_gerar_export"):
+            if st.button("📊 Gerar planilha", use_container_width=True, key="btn_gerar_export"):
                 try:
                     import io
                     from datetime import datetime as _dt
@@ -475,14 +485,26 @@ def tela_admin():
                     for m in msgs:
                         ws2.append([_cel(v) for v in m])
 
+                    ws3 = wb.create_sheet("Tratativas")
+                    cab3 = ["ID", "Setor de Destino", "Empresa", "Tipo de Inconsistência", "Parceiro",
+                            "Número NF", "Tipo de Movimentação", "Valor", "Observação", "Criado por",
+                            "Criado em", "NU Financeiro", "NU Nota"]
+                    ws3.append(cab3)
+                    for c in ws3[1]:
+                        c.font = Font(bold=True)
+                    for t in tratativas:
+                        ws3.append([_cel(v) for v in t])
+
                     buffer = io.BytesIO()
                     wb.save(buffer)
                     st.session_state["export_xlsx"] = buffer.getvalue()
                     st.session_state["export_protocolos"] = protocolos
+                    st.session_state["export_tratativas"] = [t[0] for t in tratativas]
                     st.session_state["export_baixado"] = False
-                    st.success(f"✅ Planilha gerada com {qtd} registro(s) "
-                               f"({qtd_enc} encerrado(s) + {qtd_entreg} entregável(is)) e "
-                               f"{len(msgs)} mensagem(ns). Baixe abaixo para liberar a limpeza.")
+                    st.success(f"✅ Planilha gerada com {qtd + qtd_trat} registro(s) "
+                               f"({qtd_enc} encerrado(s) + {qtd_entreg} entregável(is) + "
+                               f"{qtd_trat} tratativa(s)) e {len(msgs)} mensagem(ns). "
+                               f"Baixe abaixo para liberar a limpeza.")
                 except ModuleNotFoundError:
                     st.error("⚠️ A biblioteca 'openpyxl' não está instalada. Adicione 'openpyxl' ao requirements.txt e reinicie o app.")
                 except Exception as e:
@@ -490,7 +512,7 @@ def tela_admin():
 
             # Botão de download (aparece depois de gerar). Baixar libera a limpeza.
             if st.session_state.get("export_xlsx"):
-                nome_arq = f"ROC_encerrados_{__import__('datetime').datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+                nome_arq = f"ROC_historico_{__import__('datetime').datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
                 baixou = st.download_button("⬇️ Baixar planilha", data=st.session_state["export_xlsx"],
                     file_name=nome_arq,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -502,15 +524,18 @@ def tela_admin():
             if st.session_state.get("export_baixado"):
                 st.markdown("---")
                 protos = st.session_state.get("export_protocolos", [])
-                st.markdown(f"✅ Planilha baixada. Agora você pode **apagar os {len(protos)} registro(s)** "
-                            "que foram exportados (chamados encerrados + entregáveis). Os chamados de "
+                trats = st.session_state.get("export_tratativas", [])
+                st.markdown(f"✅ Planilha baixada. Agora você pode **apagar os {len(protos) + len(trats)} "
+                            f"registro(s)** que foram exportados: {len(protos)} chamado(s) "
+                            f"(encerrados + entregáveis) e {len(trats)} tratativa(s). Os chamados de "
                             "inconsistência Abertos/Em andamento não serão tocados.")
                 if st.button("🗑️ Apagar registros exportados do banco", use_container_width=True, key="btn_apagar_encerrados"):
                     st.session_state["confirmar_limpeza"] = True
 
                 if st.session_state.get("confirmar_limpeza"):
                     st.warning("⚠️ Tem certeza? Esta ação é permanente. Os registros exportados — chamados "
-                               "encerrados e **todos os entregáveis** (e suas mensagens) — serão removidos do banco.")
+                               "encerrados, **todos os entregáveis** (e suas mensagens) e **todas as "
+                               "tratativas** — serão removidos do banco.")
                     lc1, lc2 = st.columns(2)
                     with lc1:
                         if st.button("Sim, apagar", use_container_width=True, type="primary", key="limpeza_sim"):
@@ -522,12 +547,18 @@ def tela_admin():
                                     run_query("DELETE FROM notificacoes WHERE protocolo=%s", (p,))
                                     run_query("DELETE FROM chamados WHERE protocolo=%s", (p,))
                                     apagados += 1
+                                apagadas_trat = 0
+                                for t in trats:
+                                    run_query("DELETE FROM solicitacoes_tratativa WHERE id=%s", (t,))
+                                    apagadas_trat += 1
                                 st.session_state["confirmar_limpeza"] = False
                                 st.session_state["export_baixado"] = False
                                 st.session_state["export_xlsx"] = None
                                 st.session_state["export_protocolos"] = []
+                                st.session_state["export_tratativas"] = []
                                 st.cache_data.clear()
-                                st.success(f"✅ {apagados} registro(s) removido(s) do banco.")
+                                st.success(f"✅ {apagados} chamado(s) e {apagadas_trat} tratativa(s) "
+                                           f"removidos do banco.")
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Não foi possível apagar: {type(e).__name__}: {e}")
