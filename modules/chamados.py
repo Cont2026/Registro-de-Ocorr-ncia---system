@@ -15,6 +15,42 @@ TIPO_FECHAMENTO = "INFORMAR ENTREGÁVEIS"
 TIPO_FOLHA = "Folha de Pagamento"
 TIPO_CONTA70 = "Divergência na conta 70"
 
+# Limite de tamanho dos anexos. Os arquivos ficam gravados no banco (em base64,
+# o que aumenta ~33% o tamanho original), então arquivo grande consome
+# armazenamento e tráfego a cada uso. Documentos pesados devem ir por e-mail.
+LIMITE_MB_ARQUIVO = 2   # por arquivo
+LIMITE_MB_TOTAL = 5     # somando todos os arquivos do mesmo envio
+
+LABEL_ANEXO = f"📎 Anexos (até {LIMITE_MB_ARQUIVO} MB por arquivo)"
+LABEL_ANEXO_OBR = f"📎 Anexos * (até {LIMITE_MB_ARQUIVO} MB por arquivo)"
+
+def validar_anexos(arquivos):
+    """Confere o tamanho antes de gravar. Devolve (ok, aviso)."""
+    if not arquivos:
+        return True, ""
+    if not isinstance(arquivos, list):
+        arquivos = [arquivos]
+    total = 0
+    grandes = []
+    for a in arquivos:
+        if a is None:
+            continue
+        try:
+            tam = len(a.getvalue())
+        except:
+            tam = 0
+        total += tam
+        if tam > LIMITE_MB_ARQUIVO * 1_048_576:
+            grandes.append(f"{a.name} ({tam / 1_048_576:.1f} MB)")
+    if grandes:
+        return False, (f"⚠️ Acima do limite de {LIMITE_MB_ARQUIVO} MB por arquivo: "
+                       f"{', '.join(grandes)}. Envie o documento por e-mail e registre "
+                       f"aqui apenas a informação.")
+    if total > LIMITE_MB_TOTAL * 1_048_576:
+        return False, (f"⚠️ O total dos anexos ({total / 1_048_576:.1f} MB) passa do limite "
+                       f"de {LIMITE_MB_TOTAL} MB por envio. Reduza a quantidade de arquivos.")
+    return True, ""
+
 def empacotar_anexos(arquivos):
     """Recebe 1 ou vários arquivos enviados e devolve (json_dados, nomes) para salvar no banco."""
     if not arquivos:
@@ -354,6 +390,10 @@ def salvar_movimentacao(protocolo, setor_chamado, tipo, status_atual,
         return False, "Escreva uma mensagem, anexe um arquivo ou altere o status."
     if not nome:
         return False, "Informe seu nome — toda movimentação precisa ficar identificada."
+    if tem_anexo:
+        ok_anexo, aviso_anexo = validar_anexos(arquivos)
+        if not ok_anexo:
+            return False, aviso_anexo
 
     autor = montar_autor(nome)
 
@@ -484,7 +524,7 @@ def exibir_chat(protocolo, setor_chamado, status=None, com_status=False, tipo=""
                 help="Deixe como está se você só quer enviar uma mensagem.")
             nova_msg = st.text_area("Nova mensagem", placeholder="Digite sua mensagem (opcional)...",
                 height=80, label_visibility="collapsed")
-            img = st.file_uploader("📎 Anexar arquivos (opcional)", type=TIPOS_ARQ,
+            img = st.file_uploader(LABEL_ANEXO, type=TIPOS_ARQ,
                 accept_multiple_files=True, key=f"chat_img_{protocolo}")
             nome_resp = st.text_input("🙋 Seu nome *",
                 placeholder="Quem está registrando esta movimentação?")
@@ -500,7 +540,7 @@ def exibir_chat(protocolo, setor_chamado, status=None, com_status=False, tipo=""
         with st.form(key=f"chat_{protocolo}", clear_on_submit=True):
             nova_msg = st.text_area("Nova mensagem", placeholder="Digite sua mensagem...",
                 height=80, label_visibility="collapsed")
-            img = st.file_uploader("📎 Anexar arquivos (opcional)", type=TIPOS_ARQ,
+            img = st.file_uploader(LABEL_ANEXO, type=TIPOS_ARQ,
                 accept_multiple_files=True, key=f"chat_img_{protocolo}")
             nome_resp = st.text_input("🙋 Seu nome *",
                 placeholder="Quem está enviando esta mensagem?")
@@ -662,7 +702,7 @@ def tela_novo_chamado(preview=False, setor_preview=None):
             carregar_setores_disponiveis(setor_atual), key="fech_copia")
         obs_fech = st.text_area("📝 Observação (opcional)", placeholder="Informações adicionais sobre a entrega...", key="fech_obs")
         atrasos_fech = st.text_area("⏰ Atrasos de entregáveis (opcional)", placeholder="Descreva eventuais atrasos de entregáveis...", key="fech_atrasos")
-        arq_fech = st.file_uploader("📎 Anexar documentos (opcional)",
+        arq_fech = st.file_uploader(LABEL_ANEXO,
             type=["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"], accept_multiple_files=True, key="fech_arquivo")
 
         st.markdown("---")
@@ -675,6 +715,10 @@ def tela_novo_chamado(preview=False, setor_preview=None):
                 return
             if not empresa_fech:
                 st.error("⚠️ Selecione ao menos uma empresa.")
+                return
+            ok_anexo, aviso_anexo = validar_anexos(arq_fech)
+            if not ok_anexo:
+                st.error(aviso_anexo)
                 return
             protocolo = registrar_fechamento(parcial, obs_fech, arq_fech, atrasos_fech, empresa_fech)
             if copia_fech:
@@ -740,7 +784,7 @@ def tela_novo_chamado(preview=False, setor_preview=None):
         solicitante_f = st.text_input("👤 Nome do Solicitante *", key="folha_solic")
         copia_folha = st.multiselect("👥 Setores em cópia (opcional)",
             carregar_setores_disponiveis(setor_atual), key="folha_copia")
-        arq_folha = st.file_uploader("📎 Anexos *", type=["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"], accept_multiple_files=True, key="folha_arquivo")
+        arq_folha = st.file_uploader(LABEL_ANEXO_OBR, type=["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"], accept_multiple_files=True, key="folha_arquivo")
         obs_folha = st.text_area("📝 Observação *", placeholder="Descreva a solicitação...", key="folha_obs")
 
         st.markdown("---")
@@ -758,6 +802,10 @@ def tela_novo_chamado(preview=False, setor_preview=None):
             if not obs_folha.strip(): erros.append("Observação")
             if erros:
                 st.error(f"⚠️ Preencha: {', '.join(erros)}")
+                return
+            ok_anexo, aviso_anexo = validar_anexos(arq_folha)
+            if not ok_anexo:
+                st.error(aviso_anexo)
                 return
             inc_final = f"Outros: {inc_folha_outros.strip()}" if inc_folha == "Outros" else inc_folha
             protocolo = registrar_folha(empresa_f, fin_baixado_f, solicitante_f.strip(),
@@ -836,7 +884,7 @@ def tela_novo_chamado(preview=False, setor_preview=None):
         solicitante_c70 = st.text_input("🙋 Nome do Solicitante *", key="c70_solic")
         copia_c70 = st.multiselect("👥 Setores em cópia (opcional)",
             carregar_setores_disponiveis(setor_atual), key="c70_copia")
-        arq_c70 = st.file_uploader("📎 Anexos *",
+        arq_c70 = st.file_uploader(LABEL_ANEXO_OBR,
             type=["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"],
             accept_multiple_files=True, key="c70_arquivo")
         obs_c70 = st.text_area("📝 Observação *", placeholder="Descreva a divergência...", key="c70_obs")
@@ -853,6 +901,10 @@ def tela_novo_chamado(preview=False, setor_preview=None):
             if not obs_c70.strip(): erros.append("Observação")
             if erros:
                 st.error(f"⚠️ Preencha: {', '.join(erros)}")
+                return
+            ok_anexo, aviso_anexo = validar_anexos(arq_c70)
+            if not ok_anexo:
+                st.error(aviso_anexo)
                 return
             protocolo = registrar_conta70(empresa_c70, solicitante_c70.strip(),
                 obs_c70.strip(), arq_c70, tipo_nota_mov=tipo_nota)
@@ -936,7 +988,7 @@ def tela_novo_chamado(preview=False, setor_preview=None):
             nu_nota = st.text_input("🔢 NU Nota (opcional)")
         copia_sel = st.multiselect("👥 Setores em cópia (opcional)", setores_copia_disp,
             help="Os setores marcados recebem e-mail e podem acompanhar e responder este chamado.")
-        arquivo = st.file_uploader("📎 Anexos (opcional)", type=["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"], accept_multiple_files=True)
+        arquivo = st.file_uploader(LABEL_ANEXO, type=["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"], accept_multiple_files=True)
         observacao = st.text_area("📝 Observação Complementar", placeholder="Informações adicionais...")
         enviar = st.form_submit_button("📨 Enviar Chamado", use_container_width=True)
 
@@ -964,6 +1016,11 @@ def tela_novo_chamado(preview=False, setor_preview=None):
         bloqueado, msg = verificar_bloqueio(data_entrada if eh_compra else data_negociacao)
         if bloqueado:
             st.error(msg)
+            return
+
+        ok_anexo, aviso_anexo = validar_anexos(arquivo)
+        if not ok_anexo:
+            st.error(aviso_anexo)
             return
 
         anexo_dados, arquivo_nome = empacotar_anexos(arquivo)
