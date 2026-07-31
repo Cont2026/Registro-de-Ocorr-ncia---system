@@ -9,7 +9,9 @@ Regras:
     de alguma das 4 parciais/importações (tabela 'fechamentos').
   - Parciais 1, 2 e 3: aviso normal de fechamento parcial.
   - Parcial 4: é o FECHAMENTO do mês (Consolidação) — aviso destacado.
-  - Avisa TODOS os setores + a CONTABILIDADE (1 e-mail só, com todos em cópia).
+  - Avisa TODOS os setores + a CONTABILIDADE + a LISTA FIXA de destinatários
+    (pessoas que acompanham o fechamento mas não abrem chamado no ROC).
+    Sai 1 e-mail só, com todos em cópia.
   - Cada alerta é enviado só 1 vez (dedup via tabela notificacoes).
 Controle de duplicidade: tabela notificacoes (não precisa de tabela nova).
 """
@@ -33,6 +35,31 @@ SENDGRID_API_KEY = os.environ["SENDGRID_API_KEY"]
 REMETENTE_EMAIL = os.environ.get("REMETENTE_EMAIL", "contabilidade@grupolle.com.br")
 REMETENTE_NOME = os.environ.get("REMETENTE_NOME", "ROC - Registro de Ocorrencias Contabeis")
 APP_URL = os.environ.get("APP_URL", "https://registro-de-ocorrencias-system-iaw5pyzvhkchnum6kseate.streamlit.app")
+
+# =====================================================================
+# DESTINATÁRIOS FIXOS DO ALERTA DE FECHAMENTO
+# Pessoas que precisam ser avisadas do fechamento mas NÃO abrem chamado
+# no ROC (não são setores cadastrados na tabela usuarios).
+#
+# PARA ADICIONAR OU REMOVER ALGUÉM: mexa apenas nesta lista, mantendo
+# cada e-mail entre aspas e separado por vírgula.
+#
+# Se algum dia você preferir tirar os e-mails do código, basta criar um
+# Secret chamado EMAILS_ALERTA_EXTRA no GitHub, com os endereços separados
+# por vírgula — eles são somados a esta lista automaticamente.
+# =====================================================================
+EMAILS_FIXOS_ALERTA = [
+    "jorge.goncalves@mmobras.com",
+    "luana.esteves@grupolle.com.br",
+    "vanessa.queiroz@grupolle.com.br",
+    "cristiane.pontes@grupolle.com.br",
+    "luciano.loureiro@grupolle.com.br",
+    "rodolfo.medeiros@grupolle.com.br",
+    "beatriz.esteves@grupolle.com.br",
+    "andre.vogas@grupolle.com.br",
+    "edmar.moura@grupolle.com.br",
+    "adm.mm.lle@mmobras.com",
+]
 
 # Nomes das parciais (o 4º pode vir com o nome antigo "Consolidado Corporativo").
 PARCIAL_4_ANTIGO = "Fechamento Consolidado Corporativo"
@@ -81,7 +108,8 @@ def normaliza_tipo(t):
 def emails_todos_setores(conn):
     with conn.cursor() as cur:
         cur.execute("""SELECT email FROM usuarios
-            WHERE perfil='setor' AND ativo=1 AND email IS NOT NULL AND email <> ''""")
+            WHERE perfil='setor' AND ativo=1 AND email IS NOT NULL AND email <> ''
+            ORDER BY email""")
         return [r[0] for r in cur.fetchall()]
 
 def email_contabilidade(conn):
@@ -91,10 +119,37 @@ def email_contabilidade(conn):
         r = cur.fetchone()
     return r[0] if r else None
 
-def ja_enviado(conn, chave, destinatario):
+def emails_fixos():
+    """Lista fixa do código + o que vier no Secret EMAILS_ALERTA_EXTRA (opcional)."""
+    extra = os.environ.get("EMAILS_ALERTA_EXTRA", "")
+    do_secret = [e.strip() for e in extra.replace(";", ",").split(",") if e.strip()]
+    return list(EMAILS_FIXOS_ALERTA) + do_secret
+
+def juntar_sem_repetir(*listas):
+    """Junta várias listas de e-mail removendo repetidos (ignorando maiúsculas)
+    e preservando a ordem de entrada. Evita que a mesma pessoa apareça no 'Para'
+    e também em cópia, o que o SendGrid recusa."""
+    vistos = set()
+    saida = []
+    for lista in listas:
+        for e in (lista or []):
+            el = str(e or "").strip()
+            if not el:
+                continue
+            chave = el.lower()
+            if chave in vistos:
+                continue
+            vistos.add(chave)
+            saida.append(el)
+    return saida
+
+def ja_enviado(conn, chave):
+    """Confere se este alerta específico já foi enviado com sucesso, por QUALQUER
+    destinatário. Antes a checagem usava o primeiro destinatário da lista, que
+    podia variar de uma execução para outra e liberar um envio repetido."""
     with conn.cursor() as cur:
         cur.execute("""SELECT COUNT(*) FROM notificacoes
-            WHERE protocolo=%s AND destinatario=%s AND sucesso=1""", (chave, destinatario))
+            WHERE protocolo=%s AND sucesso=1""", (chave,))
         return cur.fetchone()[0] > 0
 
 def registrar(conn, chave, destinatario, assunto, sucesso):
@@ -148,7 +203,7 @@ def montar_email(titulo, nome_evento, data_evento, periodo_ini, periodo_fim, eh_
 
 def enviar_email(destinatarios, assunto, corpo_html):
     """destinatarios: lista. 1º vai no 'to', os demais em CC (1 e-mail só)."""
-    dest = [d for d in destinatarios if d]
+    dest = juntar_sem_repetir(destinatarios)
     if not dest:
         return False
     message = Mail(from_email=(REMETENTE_EMAIL, REMETENTE_NOME),
@@ -198,14 +253,16 @@ def main():
             print("[ROC-FECH] Nenhum fechamento no próximo dia útil. Nada a enviar.")
             return
 
-        # Destinatários: todos os setores + contabilidade (1 e-mail só, com CC).
-        destinatarios = emails_todos_setores(conn)
+        # Destinatários: setores + contabilidade + lista fixa (1 e-mail só, com CC).
+        setores = emails_todos_setores(conn)
         cont = email_contabilidade(conn)
-        if cont and cont not in destinatarios:
-            destinatarios.append(cont)
+        fixos = emails_fixos()
+        destinatarios = juntar_sem_repetir(setores, [cont], fixos)
         if not destinatarios:
             print("[ROC-FECH] Nenhum destinatário ativo encontrado.")
             return
+        print(f"[ROC-FECH] Destinatários: {len(destinatarios)} "
+              f"({len(setores)} setor(es) + contabilidade + {len(fixos)} fixo(s), sem repetidos)")
 
         total = 0
         vistos_chave = set()
@@ -217,8 +274,7 @@ def main():
             assunto = f"ROC — Amanhã: {nome} ({fmt(d)})"
             corpo = montar_email(assunto, nome, d, pini, pfim, eh_final)
 
-            ref = destinatarios[0]
-            if ja_enviado(conn, chave, ref):
+            if ja_enviado(conn, chave):
                 print(f"   (já enviado) {chave}")
                 continue
             try:
