@@ -15,6 +15,14 @@ TIPO_FECHAMENTO = "INFORMAR ENTREGÁVEIS"
 TIPO_FOLHA = "Folha de Pagamento"
 TIPO_CONTA70 = "Divergência na conta 70"
 
+# Status possíveis. "Pendente" = a contabilidade teve retorno do setor, mas o
+# assunto não fechou de fato: ficou uma pendência. Conta como ENCERRADO (chat
+# travado, fora da contagem de SLA), mas NÃO entra na rotina de limpeza — ele
+# precisa ser retomado pela "Abertura de pendência" e só sai do banco depois
+# de virar Resolvido.
+STATUS_TODOS = ["Aberto", "Em andamento", "Pendente", "Resolvido", "Cancelado"]
+STATUS_ENCERRADOS = ("Pendente", "Resolvido", "Cancelado")
+
 # Limite de tamanho dos anexos. Os arquivos ficam gravados no banco (em base64,
 # o que aumenta ~33% o tamanho original), então arquivo grande consome
 # armazenamento e tráfego a cada uso. Documentos pesados devem ir por e-mail.
@@ -281,10 +289,17 @@ def emails_interessados(protocolo, setor_chamado, excluir_email=None):
         emails.discard(excluir_email)
     return emails
 
-def reabrir_chamado(protocolo, setor, responsavel, motivo):
-    """Reabre um chamado encerrado (Resolvido/Cancelado): volta para 'Em andamento',
-    marca como reaberto, soma 1 no contador de reaberturas e guarda responsável,
-    motivo e data. Notifica contabilidade + setores em cópia."""
+def reabrir_chamado(protocolo, setor, responsavel, motivo, origem_status=""):
+    """Retoma um chamado encerrado: volta para 'Em andamento', marca como reaberto,
+    soma 1 no contador de reaberturas e guarda responsável, motivo e data.
+    Notifica contabilidade + setores em cópia.
+
+    O mecanismo é o mesmo nos dois casos, muda só o nome do que aconteceu:
+      · saindo de 'Pendente'              -> Abertura de pendência
+      · saindo de 'Resolvido'/'Cancelado' -> Reabertura
+    Nos dois casos soma no contador de reaberturas, ou seja, pesa 2 nos
+    indicadores de retrabalho."""
+    eh_pendencia = (str(origem_status or "") == "Pendente")
     agora = datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S")
     run_query("""UPDATE chamados
         SET status='Em andamento', reaberto=1,
@@ -292,18 +307,23 @@ def reabrir_chamado(protocolo, setor, responsavel, motivo):
             reaberto_por=%s, reaberto_motivo=%s, reaberto_em=%s
         WHERE protocolo=%s""",
         (responsavel.strip(), motivo.strip(), agora, protocolo))
-    # Registra a reabertura como uma mensagem no chat, para ficar no histórico.
+    # Registra o evento como uma mensagem no chat, para ficar no histórico.
+    if eh_pendencia:
+        texto_hist = f"📌 PENDÊNCIA ABERTA por {responsavel.strip()}. Motivo: {motivo.strip()}"
+        status_email = "Em andamento (Pendência aberta)"
+    else:
+        texto_hist = f"🔄 Chamado REABERTO por {responsavel.strip()}. Motivo: {motivo.strip()}"
+        status_email = "Em andamento (Reaberto)"
     try:
         enviar_mensagem_db(protocolo, responsavel.strip(),
-            st.session_state.get("perfil", "setor"),
-            f"🔄 Chamado REABERTO por {responsavel.strip()}. Motivo: {motivo.strip()}")
+            st.session_state.get("perfil", "setor"), texto_hist)
     except:
         pass
     # Notifica contabilidade + setores em cópia (1 e-mail só, com todos juntos).
     try:
         destinos = emails_interessados(protocolo, setor, st.session_state.get("email"))
         if destinos:
-            email_atualizacao_chamado(list(destinos), protocolo, "Em andamento (Reaberto)",
+            email_atualizacao_chamado(list(destinos), protocolo, status_email,
                 setor, atendente=responsavel.strip())
     except:
         pass
@@ -479,19 +499,25 @@ def exibir_chat(protocolo, setor_chamado, status=None, com_status=False, tipo=""
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    OPCOES_STATUS = ["Aberto", "Em andamento", "Resolvido", "Cancelado"]
+    OPCOES_STATUS = list(STATUS_TODOS)
     TIPOS_ARQ = ["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"]
-    encerrado = str(status or "") in ("Resolvido", "Cancelado")
+    encerrado = str(status or "") in STATUS_ENCERRADOS
 
     # Chamado encerrado (Resolvido ou Cancelado): mostra o histórico acima,
     # mas não permite novas mensagens. A contabilidade ainda pode corrigir o
     # status, então nesse caso aparece um formulário só de status.
     if encerrado:
+        if str(status or "") == "Pendente":
+            aviso_travado = ("🔒 Este chamado está <strong>Pendente</strong>: houve retorno, mas o "
+                             "assunto não foi finalizado. Não é possível enviar novas mensagens — "
+                             "para retomar, use a <strong>Abertura de pendência</strong>.")
+        else:
+            aviso_travado = (f"🔒 Este chamado está <strong>{status}</strong> e foi encerrado. "
+                             f"Não é possível enviar novas mensagens.")
         st.markdown(
             f"<div style='background:#f0f0f0;border:1px solid #d9d9d9;border-radius:8px;"
             f"padding:14px 16px;text-align:center;color:#666;font-size:13px;'>"
-            f"🔒 Este chamado está <strong>{status}</strong> e foi encerrado. "
-            f"Não é possível enviar novas mensagens.</div>",
+            f"{aviso_travado}</div>",
             unsafe_allow_html=True)
         if com_status:
             with st.form(key=f"statusonly_{protocolo}"):
@@ -1083,7 +1109,7 @@ def tela_novo_chamado(preview=False, setor_preview=None):
         st.balloons()
 
 def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, aberto_em, solicitante, fin_baixado, setor, eh_contabilidade=False, protocolo_aberto=None):
-    status_cor = {"Aberto":"🔴","Em andamento":"🟡","Resolvido":"🟢","Cancelado":"⚫"}
+    status_cor = {"Aberto":"🔴","Em andamento":"🟡","Pendente":"🟠","Resolvido":"🟢","Cancelado":"⚫"}
     # INFORMAR ENTREGÁVEIS é um registro apenas informativo: não há validação da
     # contabilidade, portanto não exibe status no cabeçalho nem controle de status.
     eh_entregaveis = str(tipo or "").startswith(TIPO_FECHAMENTO)
@@ -1212,23 +1238,43 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
                 st.success("✅ Cópia atualizada!")
                 st.rerun()
 
-        # Reabrir chamado: disponível para qualquer um (setor e contabilidade)
-        # quando o chamado está Resolvido ou Cancelado. Gera retrabalho (conta no dashboard).
-        if status in ("Resolvido", "Cancelado") and not eh_entregaveis:
+        # Retomada do chamado encerrado: disponível para setor e contabilidade.
+        # Em 'Pendente' o evento se chama ABERTURA DE PENDÊNCIA; em 'Resolvido' e
+        # 'Cancelado' continua se chamando REABERTURA. Nos dois casos soma no
+        # contador de reaberturas, ou seja, pesa 2 no retrabalho.
+        if status in STATUS_ENCERRADOS and not eh_entregaveis:
+            eh_pend = (status == "Pendente")
+            if eh_pend:
+                titulo_reab = "📌 Abertura de pendência"
+                explic_reab = ("Use para retomar o chamado que ficou com pendência. Ele volta para "
+                               "'Em andamento' e a abertura de pendência fica registrada.")
+                rotulo_resp = "🙋 Nome do responsável pela abertura da pendência *"
+                rotulo_motivo = "📝 Qual é a pendência? *"
+                ph_motivo = "Descreva a pendência que ficou em aberto..."
+                rotulo_btn = "📌 Confirmar abertura de pendência"
+                msg_ok = "✅ Pendência aberta. O chamado voltou para Em andamento."
+            else:
+                titulo_reab = "🔄 Reabrir este chamado"
+                explic_reab = ("Use quando o problema voltou ou não foi resolvido. O chamado volta para "
+                               "'Em andamento' e a reabertura fica registrada.")
+                rotulo_resp = "🙋 Nome do responsável pela reabertura *"
+                rotulo_motivo = "📝 Motivo da reabertura *"
+                ph_motivo = "Explique por que o chamado precisa ser reaberto..."
+                rotulo_btn = "🔄 Confirmar reabertura"
+                msg_ok = "✅ Chamado reaberto e enviado para Em andamento."
             st.markdown("---")
-            with st.expander("🔄 Reabrir este chamado"):
-                st.caption("Use quando o problema voltou ou não foi resolvido. O chamado volta para "
-                           "'Em andamento' e a reabertura fica registrada.")
-                resp_reab = st.text_input("🙋 Nome do responsável pela reabertura *", key=f"reab_resp_{protocolo}")
-                motivo_reab = st.text_area("📝 Motivo da reabertura *", key=f"reab_motivo_{protocolo}",
-                    placeholder="Explique por que o chamado precisa ser reaberto...")
-                if st.button("🔄 Confirmar reabertura", key=f"reab_btn_{protocolo}", use_container_width=True):
+            with st.expander(titulo_reab):
+                st.caption(explic_reab)
+                resp_reab = st.text_input(rotulo_resp, key=f"reab_resp_{protocolo}")
+                motivo_reab = st.text_area(rotulo_motivo, key=f"reab_motivo_{protocolo}",
+                    placeholder=ph_motivo)
+                if st.button(rotulo_btn, key=f"reab_btn_{protocolo}", use_container_width=True):
                     if not resp_reab.strip() or not motivo_reab.strip():
-                        st.warning("⚠️ Preencha o responsável e o motivo da reabertura.")
+                        st.warning("⚠️ Preencha o responsável e o motivo.")
                     else:
-                        reabrir_chamado(protocolo, setor, resp_reab, motivo_reab)
+                        reabrir_chamado(protocolo, setor, resp_reab, motivo_reab, origem_status=status)
                         st.cache_data.clear()
-                        st.success("✅ Chamado reaberto e enviado para Em andamento.")
+                        st.success(msg_ok)
                         st.rerun()
 
         st.markdown("---")
@@ -1270,7 +1316,7 @@ def tela_todos_chamados(protocolo_aberto=None):
         st.info("Nenhum chamado registrado ainda.")
         return
     c1,c2,c3 = st.columns(3)
-    filtro_status = c1.selectbox("Status", ["Todos","Aberto","Em andamento","Resolvido","Cancelado"])
+    filtro_status = c1.selectbox("Status", ["Todos"] + STATUS_TODOS)
     filtro_empresa = c2.selectbox("Empresa", ["Todas","1","2","6","13","14"])
     filtro_setor = c3.text_input("Setor")
     for protocolo, setor, tipo, empresa, status, prioridade, parceiro, nf, aberto_em, solicitante, fin_baixado in rows:
