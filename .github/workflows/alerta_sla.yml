@@ -1,26 +1,21 @@
 name: Alerta de SLA ROC
-
 on:
   schedule:
     # Roda todo dia às 11:30 UTC = 08:30 de Brasília.
     - cron: '30 11 * * *'
   workflow_dispatch:   # permite rodar manualmente pelo botão "Run workflow"
-
 jobs:
   enviar-alertas-sla:
     runs-on: ubuntu-latest
     steps:
       - name: Baixar o código
         uses: actions/checkout@v4
-
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
       - name: Instalar dependências
-        run: pip install psycopg2-binary sendgrid
-
+        run: pip install psycopg2-binary
       - name: Rodar alerta de SLA
         env:
           DB_HOST: ${{ secrets.DB_HOST }}
@@ -28,7 +23,10 @@ jobs:
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_PORT: ${{ secrets.DB_PORT }}
-          SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           REMETENTE_EMAIL: ${{ secrets.REMETENTE_EMAIL }}
           REMETENTE_NOME: ${{ secrets.REMETENTE_NOME }}
           APP_URL: ${{ secrets.APP_URL }}
