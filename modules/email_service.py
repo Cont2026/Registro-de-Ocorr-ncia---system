@@ -1,9 +1,7 @@
 import streamlit as st
-import urllib.request
-import urllib.error
-import json
-import base64
-import mimetypes
+import smtplib
+import ssl
+from email.message import EmailMessage
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from database.connection import run_query
@@ -38,6 +36,34 @@ def _email_contabilidade():
     except:
         return None
 
+def _config_smtp():
+    """Dados do servidor de envio, lidos das Secrets.
+
+    O envio é feito por SMTP (protocolo padrão de e-mail), e não pela API de um
+    serviço específico. Assim o sistema funciona com Brevo, Mailjet, Resend ou o
+    próprio Microsoft 365 da empresa — para trocar de serviço basta mudar estas
+    Secrets, sem alterar uma linha de código.
+
+    Secrets necessárias:
+        SMTP_HOST      ex.: smtp-relay.brevo.com
+        SMTP_PORT      587 (com STARTTLS) ou 465 (SSL direto)
+        SMTP_USER      o login que o serviço fornece
+        SMTP_PASSWORD  a chave/senha SMTP que o serviço fornece
+    """
+    host = str(st.secrets["SMTP_HOST"]).strip()
+    porta = int(str(st.secrets.get("SMTP_PORT", 587)).strip() or 587)
+    usuario = str(st.secrets["SMTP_USER"]).strip()
+    senha = str(st.secrets["SMTP_PASSWORD"]).strip()
+    return host, porta, usuario, senha
+
+def _texto_alternativo(assunto):
+    """Versão em texto puro do e-mail. Alguns filtros de spam penalizam mensagens
+    que só têm HTML, então vai sempre uma versão simples junto."""
+    return (f"{assunto}\n\n"
+            f"Este é um aviso automático do ROC — Registro de Ocorrências Contábeis.\n"
+            f"Acesse o sistema para ver os detalhes: {get_url_base()}\n\n"
+            f"Grupo LLE · mensagem automática, não responda diretamente.")
+
 def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral", anexos=None, copiar_contabilidade=True):
     """destinatario: pode ser um e-mail (str) OU uma lista de e-mails.
     Quando é lista, o 1º vira 'Para' e os demais entram em CC — assim sai
@@ -45,10 +71,11 @@ def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral"
     anexos: lista de tuplas (nome_arquivo, conteudo_bytes).
     copiar_contabilidade: quando False, NÃO coloca a Contabilidade em BCC
     (usado no e-mail de 'você está em cópia', que é redundante para ela)."""
+    dest_unicos = []
     try:
-        api_key = st.secrets["SENDGRID_API_KEY"]
-        remetente = st.secrets["REMETENTE_EMAIL"]
-        nome_remetente = st.secrets["REMETENTE_NOME"]
+        host, porta, usuario, senha = _config_smtp()
+        remetente = str(st.secrets["REMETENTE_EMAIL"]).strip()
+        nome_remetente = str(st.secrets["REMETENTE_NOME"]).strip()
 
         # Normaliza a entrada: aceita str ou lista, remove vazios e duplicados.
         if isinstance(destinatario, (list, tuple, set)):
@@ -56,7 +83,6 @@ def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral"
         else:
             bruto = [destinatario]
         vistos = set()
-        dest_unicos = []
         for e in bruto:
             el = str(e or "").strip()
             if el and el.lower() not in vistos:
@@ -66,16 +92,9 @@ def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral"
             return False
 
         # 1º destinatário = "Para"; os demais = CC (1 e-mail só para todos).
-        personalization = {"to": [{"email": dest_unicos[0]}]}
-        if len(dest_unicos) > 1:
-            personalization["cc"] = [{"email": e} for e in dest_unicos[1:]]
-
-        dados = {
-            "personalizations": [personalization],
-            "from": {"email": remetente, "name": nome_remetente},
-            "subject": assunto,
-            "content": [{"type": "text/html", "value": corpo_html}]
-        }
+        para = [dest_unicos[0]]
+        cc = dest_unicos[1:]
+        bcc = []
 
         # Contabilidade recebe cópia (BCC) de todas as notificações automaticamente,
         # mas apenas 1 vez por assunto (evita várias cópias quando há vários setores),
@@ -88,58 +107,72 @@ def enviar_email(destinatario, assunto, corpo_html, protocolo=None, tipo="geral"
                 chave = (assunto or "").strip().lower()
                 ultimo = _bcc_recente.get(chave, 0)
                 if agora - ultimo > 60:  # mesma "rodada" de envios: só a 1ª cópia
-                    personalization["bcc"] = [{"email": email_cont}]
+                    bcc.append(email_cont.strip())
                     _bcc_recente[chave] = agora
                     for k in [k for k, v in _bcc_recente.items() if agora - v > 600]:
                         _bcc_recente.pop(k, None)
 
-        # Os anexos NÃO são enviados por e-mail (evita recusa do SendGrid por tamanho
-        # e mantém os e-mails leves). O arquivo continua salvo no sistema; o e-mail
-        # apenas avisa para acessar o chamado e baixar lá, quando houver anexo.
+        # Os anexos NÃO são enviados por e-mail (evita recusa por tamanho e mantém
+        # os e-mails leves). O arquivo continua salvo no sistema; o e-mail apenas
+        # avisa para acessar o chamado e baixar lá, quando houver anexo.
         if anexos and any(c for (_n, c) in anexos if c):
             aviso = ("<div style=\"max-width:600px;margin:8px auto 0;padding:12px 16px;"
                      "background:#F0F4FF;border:1px solid #b9c7f0;border-radius:8px;"
                      "font-family:Arial,sans-serif;font-size:13px;color:#041747;\">"
                      "📎 <strong>Este chamado possui anexo(s).</strong> "
                      "Acesse o chamado no sistema para visualizar e baixar o(s) arquivo(s).</div>")
-            try:
-                dados["content"][0]["value"] = dados["content"][0]["value"] + aviso
-            except:
-                pass
+            corpo_html = corpo_html + aviso
 
-        req = urllib.request.Request(
-            "https://api.sendgrid.com/v3/mail/send",
-            data=json.dumps(dados).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            },
-            method="POST"
-        )
-        urllib.request.urlopen(req)
+        msg = EmailMessage()
+        msg["Subject"] = assunto
+        msg["From"] = f"{nome_remetente} <{remetente}>"
+        msg["To"] = ", ".join(para)
+        if cc:
+            msg["Cc"] = ", ".join(cc)
+        # O BCC NÃO entra no cabeçalho (senão deixaria de ser oculto): ele vai
+        # apenas na lista de entrega passada ao servidor.
+        msg.set_content(_texto_alternativo(assunto))
+        msg.add_alternative(corpo_html, subtype="html")
+
+        todos = para + cc + bcc
+        contexto = ssl.create_default_context()
+        if porta == 465:
+            with smtplib.SMTP_SSL(host, porta, timeout=30, context=contexto) as s:
+                s.login(usuario, senha)
+                s.send_message(msg, from_addr=remetente, to_addrs=todos)
+        else:
+            with smtplib.SMTP(host, porta, timeout=30) as s:
+                s.ehlo()
+                s.starttls(context=contexto)
+                s.ehlo()
+                s.login(usuario, senha)
+                s.send_message(msg, from_addr=remetente, to_addrs=todos)
+
         registrar_notificacao(protocolo, ", ".join(dest_unicos), assunto, tipo, True)
         return True
-    except urllib.error.HTTPError as e:
-        # O SendGrid recusou o envio: captura o código e a mensagem real da resposta
-        # e grava no "assunto" da notificação, para aparecer na aba Notificações do Admin.
-        try:
-            corpo_erro = e.read().decode("utf-8", "ignore")
-        except:
-            corpo_erro = ""
-        motivo = f"[ERRO SendGrid {e.code}] {corpo_erro[:400]}"
-        try:
-            log_dest = ", ".join(dest_unicos)
-        except:
-            log_dest = str(destinatario)
+
+    except smtplib.SMTPAuthenticationError as e:
+        # Login/senha SMTP recusados — normalmente Secret errada ou chave revogada.
+        motivo = f"[ERRO SMTP autenticacao] {str(e)[:400]}"
+        log_dest = ", ".join(dest_unicos) if dest_unicos else str(destinatario)
+        registrar_notificacao(protocolo, log_dest, f"{assunto} {motivo}", tipo, False)
+        return False
+    except smtplib.SMTPRecipientsRefused as e:
+        # O servidor recusou os destinatários (endereço inválido, por exemplo).
+        motivo = f"[ERRO SMTP destinatarios] {str(e)[:400]}"
+        log_dest = ", ".join(dest_unicos) if dest_unicos else str(destinatario)
+        registrar_notificacao(protocolo, log_dest, f"{assunto} {motivo}", tipo, False)
+        return False
+    except smtplib.SMTPException as e:
+        # Outra falha do servidor de e-mail (cota, remetente não verificado, etc.).
+        motivo = f"[ERRO SMTP {type(e).__name__}] {str(e)[:400]}"
+        log_dest = ", ".join(dest_unicos) if dest_unicos else str(destinatario)
         registrar_notificacao(protocolo, log_dest, f"{assunto} {motivo}", tipo, False)
         return False
     except Exception as e:
-        # Outra falha (rede, secret ausente, etc.): grava o tipo e a mensagem do erro.
+        # Falha fora do envio (rede, Secret ausente, etc.).
         motivo = f"[ERRO {type(e).__name__}] {str(e)[:400]}"
-        try:
-            log_dest = ", ".join(dest_unicos)
-        except:
-            log_dest = str(destinatario)
+        log_dest = ", ".join(dest_unicos) if dest_unicos else str(destinatario)
         registrar_notificacao(protocolo, log_dest, f"{assunto} {motivo}", tipo, False)
         return False
 
@@ -227,7 +260,8 @@ def email_novo_chamado(email_contabilidade, protocolo, setor, tipo, prioridade, 
 def email_atualizacao_chamado(email_setor, protocolo, novo_status, setor="", atendente="", mensagem=""):
     """Avisa a mudança de status. Quando 'mensagem' vem preenchida, o texto do chat
     entra no MESMO e-mail — evitando dois disparos para as mesmas pessoas."""
-    cores = {"Aberto":"#ef4444","Em andamento":"#f59e0b","Resolvido":"#22c55e","Cancelado":"#6b7280"}
+    cores = {"Aberto":"#ef4444","Em andamento":"#f59e0b","Pendente":"#fb923c",
+             "Resolvido":"#22c55e","Cancelado":"#6b7280"}
     cor = cores.get(novo_status, "#041747")
     assunto = f"ROC — Chamado {protocolo} atualizado para {novo_status}"
     linha_atend = tabela_row("Atualizado por", atendente) if atendente else ""
