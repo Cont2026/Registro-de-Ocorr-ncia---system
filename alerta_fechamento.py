@@ -20,9 +20,11 @@ import sys
 from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 
+import smtplib
+import ssl
+from email.message import EmailMessage
+
 import psycopg2
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
 
@@ -31,7 +33,13 @@ DB_NAME = os.environ["DB_NAME"]
 DB_USER = os.environ["DB_USER"]
 DB_PASSWORD = os.environ["DB_PASSWORD"]
 DB_PORT = os.environ.get("DB_PORT", "5432")
-SENDGRID_API_KEY = os.environ["SENDGRID_API_KEY"]
+# Envio por SMTP (protocolo padrão), e não pela API de um serviço específico.
+# Funciona com Brevo, Mailjet, Resend ou o Microsoft 365 da empresa: para trocar
+# de serviço basta mudar estas Secrets, sem alterar o código.
+SMTP_HOST = os.environ["SMTP_HOST"]
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587") or "587")
+SMTP_USER = os.environ["SMTP_USER"]
+SMTP_PASSWORD = os.environ["SMTP_PASSWORD"]
 REMETENTE_EMAIL = os.environ.get("REMETENTE_EMAIL", "contabilidade@grupolle.com.br")
 REMETENTE_NOME = os.environ.get("REMETENTE_NOME", "ROC - Registro de Ocorrencias Contabeis")
 APP_URL = os.environ.get("APP_URL", "https://registro-de-ocorrencias-system-iaw5pyzvhkchnum6kseate.streamlit.app")
@@ -128,7 +136,7 @@ def emails_fixos():
 def juntar_sem_repetir(*listas):
     """Junta várias listas de e-mail removendo repetidos (ignorando maiúsculas)
     e preservando a ordem de entrada. Evita que a mesma pessoa apareça no 'Para'
-    e também em cópia, o que o SendGrid recusa."""
+    e também em cópia, o que o servidor de e-mail recusa."""
     vistos = set()
     saida = []
     for lista in listas:
@@ -202,21 +210,41 @@ def montar_email(titulo, nome_evento, data_evento, periodo_ini, periodo_fim, eh_
     """
 
 def enviar_email(destinatarios, assunto, corpo_html):
-    """destinatarios: lista. 1º vai no 'to', os demais em CC (1 e-mail só)."""
+    """Envia 1 e-mail só: o 1º destinatário no 'Para', os demais em CC.
+    Vai junto uma versão em texto puro, porque mensagem só com HTML costuma
+    ser penalizada pelos filtros de spam."""
     dest = juntar_sem_repetir(destinatarios)
     if not dest:
         return False
-    message = Mail(from_email=(REMETENTE_EMAIL, REMETENTE_NOME),
-                   to_emails=dest[0], subject=assunto, html_content=corpo_html)
-    if len(dest) > 1:
-        for cc in dest[1:]:
-            try:
-                message.add_cc(cc)
-            except:
-                pass
-    sg = SendGridAPIClient(SENDGRID_API_KEY)
-    resp = sg.send(message)
-    return resp.status_code in (200, 201, 202)
+
+    para, cc = [dest[0]], dest[1:]
+
+    msg = EmailMessage()
+    msg["Subject"] = assunto
+    msg["From"] = f"{REMETENTE_NOME} <{REMETENTE_EMAIL}>"
+    msg["To"] = ", ".join(para)
+    if cc:
+        msg["Cc"] = ", ".join(cc)
+    msg.set_content(
+        f"{assunto}\n\n"
+        f"Este é um aviso automático do ROC — Registro de Ocorrências Contábeis.\n"
+        f"Acesse o sistema para ver os detalhes: {APP_URL}\n\n"
+        f"Grupo LLE · mensagem automática, não responda diretamente.")
+    msg.add_alternative(corpo_html, subtype="html")
+
+    contexto = ssl.create_default_context()
+    if SMTP_PORT == 465:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=30, context=contexto) as s:
+            s.login(SMTP_USER, SMTP_PASSWORD)
+            s.send_message(msg, from_addr=REMETENTE_EMAIL, to_addrs=dest)
+    else:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as s:
+            s.ehlo()
+            s.starttls(context=contexto)
+            s.ehlo()
+            s.login(SMTP_USER, SMTP_PASSWORD)
+            s.send_message(msg, from_addr=REMETENTE_EMAIL, to_addrs=dest)
+    return True
 
 def coletar_eventos_do_dia(conn, alvo):
     """Retorna a lista de eventos de fechamento cuja data de importação é 'alvo'.
