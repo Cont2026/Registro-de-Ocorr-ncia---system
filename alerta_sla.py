@@ -9,19 +9,23 @@ Regras:
   - Alerta de atraso ao atingir 24h úteis sem resposta.
   - Cada nível é avisado só 1 vez por período de espera. Qualquer mensagem nova
     "zera" o relógio (muda a base de atividade) e libera novos avisos.
-  - Avisa o SETOR responsável E a CONTABILIDADE.
+  - Avisa o SETOR responsável E a CONTABILIDADE — em 1 e-mail só, com cópia.
   - INFORMAR ENTREGÁVEIS é um registro apenas informativo (sem validação da
     contabilidade): fica FORA do SLA — não recebe pré-aviso, alerta nem cancelamento.
+  - Chamado com status PENDENTE também fica fora: a seleção pega apenas
+    'Aberto' e 'Em andamento', então quem está aguardando tratativa de pendência
+    não é cobrado nem cancelado automaticamente.
 Controle de duplicidade: tabela notificacoes (não precisa de tabela nova).
 """
 import os
 import sys
+import smtplib
+import ssl
+from email.message import EmailMessage
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import psycopg2
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
 
@@ -33,7 +37,13 @@ DB_NAME = os.environ["DB_NAME"]
 DB_USER = os.environ["DB_USER"]
 DB_PASSWORD = os.environ["DB_PASSWORD"]
 DB_PORT = os.environ.get("DB_PORT", "5432")
-SENDGRID_API_KEY = os.environ["SENDGRID_API_KEY"]
+# Envio por SMTP (protocolo padrão), e não pela API de um serviço específico.
+# Funciona com Brevo, Mailjet, Resend ou o Microsoft 365 da empresa: para trocar
+# de serviço basta mudar estas Secrets, sem alterar o código.
+SMTP_HOST = os.environ["SMTP_HOST"]
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587") or "587")
+SMTP_USER = os.environ["SMTP_USER"]
+SMTP_PASSWORD = os.environ["SMTP_PASSWORD"]
 REMETENTE_EMAIL = os.environ.get("REMETENTE_EMAIL", "contabilidade@grupolle.com.br")
 REMETENTE_NOME = os.environ.get("REMETENTE_NOME", "ROC - Registro de Ocorrencias Contabeis")
 APP_URL = os.environ.get("APP_URL", "https://registro-de-ocorrencias-system-iaw5pyzvhkchnum6kseate.streamlit.app")
@@ -121,10 +131,30 @@ def email_contabilidade(conn):
         r = cur.fetchone()
     return r[0] if r else None
 
-def ja_enviado(conn, chave, destinatario):
+def juntar_sem_repetir(*listas):
+    """Junta listas de e-mail removendo repetidos (ignorando maiúsculas) e
+    preservando a ordem. Evita que o mesmo endereço fique no 'Para' e também em
+    cópia, o que o servidor de e-mail recusa."""
+    vistos = set()
+    saida = []
+    for lista in listas:
+        for e in (lista or []):
+            el = str(e or "").strip()
+            if not el:
+                continue
+            if el.lower() in vistos:
+                continue
+            vistos.add(el.lower())
+            saida.append(el)
+    return saida
+
+def ja_enviado(conn, chave):
+    """Confere se este alerta específico já foi enviado com sucesso, por QUALQUER
+    destinatário. A chave inclui o momento da última atividade, então uma mensagem
+    nova zera o relógio e libera um aviso novo."""
     with conn.cursor() as cur:
         cur.execute("""SELECT COUNT(*) FROM notificacoes
-            WHERE protocolo=%s AND destinatario=%s AND sucesso=1""", (chave, destinatario))
+            WHERE protocolo=%s AND sucesso=1""", (chave,))
         return cur.fetchone()[0] > 0
 
 def registrar(conn, chave, destinatario, assunto, sucesso):
@@ -171,12 +201,43 @@ def montar_email(protocolo, setor, horas, nivel):
     </div>
     """
 
-def enviar_email(destinatario, assunto, corpo_html):
-    message = Mail(from_email=(REMETENTE_EMAIL, REMETENTE_NOME),
-                   to_emails=destinatario, subject=assunto, html_content=corpo_html)
-    sg = SendGridAPIClient(SENDGRID_API_KEY)
-    resp = sg.send(message)
-    return resp.status_code in (200, 201, 202)
+def enviar_email(destinatarios, assunto, corpo_html):
+    """Envia 1 e-mail só: o 1º destinatário no 'Para', os demais em CC.
+    Antes saía um e-mail separado para cada pessoa, o que dobrava o consumo da
+    cota de envio. Vai junto uma versão em texto puro, porque mensagem só com
+    HTML costuma ser penalizada pelos filtros de spam."""
+    dest = juntar_sem_repetir(destinatarios)
+    if not dest:
+        return False
+
+    para, cc = [dest[0]], dest[1:]
+
+    msg = EmailMessage()
+    msg["Subject"] = assunto
+    msg["From"] = f"{REMETENTE_NOME} <{REMETENTE_EMAIL}>"
+    msg["To"] = ", ".join(para)
+    if cc:
+        msg["Cc"] = ", ".join(cc)
+    msg.set_content(
+        f"{assunto}\n\n"
+        f"Este é um aviso automático do ROC — Registro de Ocorrências Contábeis.\n"
+        f"Acesse o sistema para ver os detalhes: {APP_URL}\n\n"
+        f"Grupo LLE · mensagem automática, não responda diretamente.")
+    msg.add_alternative(corpo_html, subtype="html")
+
+    contexto = ssl.create_default_context()
+    if SMTP_PORT == 465:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=30, context=contexto) as s:
+            s.login(SMTP_USER, SMTP_PASSWORD)
+            s.send_message(msg, from_addr=REMETENTE_EMAIL, to_addrs=dest)
+    else:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as s:
+            s.ehlo()
+            s.starttls(context=contexto)
+            s.ehlo()
+            s.login(SMTP_USER, SMTP_PASSWORD)
+            s.send_message(msg, from_addr=REMETENTE_EMAIL, to_addrs=dest)
+    return True
 
 def main():
     agora = datetime.now(BRASILIA)
@@ -184,8 +245,11 @@ def main():
     conn = conectar()
     try:
         with conn.cursor() as cur:
-            # INFORMAR ENTREGÁVEIS é excluído já aqui (por tipo_nota exato e por
-            # tipo_inconsistencia que começa com o mesmo texto, ex.: "... - 4º Parcial").
+            # Só entram 'Aberto' e 'Em andamento'. Isso deixa de fora, por construção,
+            # os chamados Resolvido, Cancelado e PENDENTE — este último está aguardando
+            # tratativa de pendência e não deve ser cobrado nem cancelado.
+            # INFORMAR ENTREGÁVEIS é excluído por tipo_nota exato e por
+            # tipo_inconsistencia que começa com o mesmo texto (ex.: "... - 4º Parcial").
             cur.execute("""SELECT protocolo, setor, aberto_em FROM chamados
                 WHERE status IN ('Aberto','Em andamento')
                   AND COALESCE(tipo_nota,'') <> %s
@@ -217,27 +281,25 @@ def main():
                        f"ROC — Chamado {protocolo} se aproximando do prazo")
             corpo = montar_email(protocolo, setor, horas, nivel)
 
-            destinatarios = []
-            es = email_setor(conn, setor)
-            if es:
-                destinatarios.append(es)
-            if cont_email and cont_email not in destinatarios:
-                destinatarios.append(cont_email)
+            # 1 e-mail só: setor no 'Para', contabilidade em cópia.
+            destinatarios = juntar_sem_repetir([email_setor(conn, setor)], [cont_email])
 
-            for dest in destinatarios:
-                if ja_enviado(conn, chave, dest):
-                    continue
+            if destinatarios and not ja_enviado(conn, chave):
                 try:
-                    ok = enviar_email(dest, assunto, corpo)
+                    ok = enviar_email(destinatarios, assunto, corpo)
                 except Exception as e:
                     ok = False
-                    print(f"   ERRO ao enviar {protocolo} para {dest}: {e}")
-                registrar(conn, chave, dest, assunto, ok)
+                    print(f"   ERRO ao enviar {protocolo}: {e}")
+                for dest in destinatarios:
+                    registrar(conn, chave, dest, assunto, ok)
                 if ok:
                     total += 1
-                    print(f"   [{nivel}] {protocolo} ({int(horas)}h) -> {dest}")
+                    print(f"   [{nivel}] {protocolo} ({int(horas)}h) -> "
+                          f"{len(destinatarios)} destinatário(s)")
 
             # Ao estourar 24h úteis: status muda automaticamente para Cancelado.
+            # O filtro de status no UPDATE garante que só Aberto/Em andamento são
+            # cancelados — um chamado Pendente nunca é atingido.
             if nivel == "estourado":
                 try:
                     with conn.cursor() as cur:
