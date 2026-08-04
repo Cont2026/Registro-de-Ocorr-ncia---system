@@ -28,8 +28,15 @@ LABELS_NOTIF = {
     "conclusao": "Conclusão",
     "solicitacao_tratativa": "Solicitação de tratativa",
     "copia_chamado": "Cópia em chamado",
+    "troca_setor": "Troca de setor responsável",
     "alerta_fechamento": "Alerta de fechamento",
 }
+
+# Nota sobre o retrabalho: o campo 'reaberturas' soma tanto as REABERTURAS (chamado
+# que estava Resolvido/Cancelado e voltou) quanto as ABERTURAS DE PENDÊNCIA (chamado
+# que estava Pendente e voltou). Nos dois casos houve retrabalho, então o peso é o
+# mesmo: 1 + reaberturas, ou seja, um chamado retomado uma vez conta como 2.
+NOTA_PESO = "Inclui o retrabalho: chamado reaberto ou com pendência aberta conta como 2."
 
 def classificar_performance(qtd):
     if qtd <= 3:
@@ -118,7 +125,8 @@ def inserir_cabecalho_relatorio(ws, titulo):
 
 def montar_performance(df_filtrado):
     """Conta chamados (erros) por setor, excluindo fechamentos de período, e classifica.
-    Usa o 'peso' (1 + reaberturas): um chamado reaberto conta como 2, pois gerou retrabalho."""
+    Usa o 'peso' (1 + reaberturas): um chamado retomado conta como 2, pois gerou
+    retrabalho — vale tanto para reabertura quanto para abertura de pendência."""
     df_err = df_filtrado[~df_filtrado["tipo"].astype(str).str.startswith(PREFIXO_FECHAMENTO)]
     base = df_err.groupby("setor")["peso"].sum().reset_index(name="qtd")
     regs = []
@@ -307,19 +315,25 @@ def tela_dashboard():
 
     st.markdown("---")
     st.markdown("#### 📈 Indicadores")
-    k1, k2, k3, k4, k5, k6 = st.columns(6)
+    k1, k2, k3, k4, k5, k6, k7 = st.columns(7)
     total = len(df_f)
     abertos = len(df_status[df_status["status"] == "Aberto"])
     em_andamento = len(df_status[df_status["status"] == "Em andamento"])
+    pendentes = len(df_status[df_status["status"] == "Pendente"])
     resolvidos = len(df_status[df_status["status"] == "Resolvido"])
     retrabalho = int(df_f["reaberturas"].sum())
     tempo_medio = df_f[df_f["tempo_resolucao"].notna()]["tempo_resolucao"].mean()
     k1.metric("Total", total)
     k2.metric("🔴 Abertos", abertos)
     k3.metric("🟡 Em andamento", em_andamento)
-    k4.metric("🟢 Resolvidos", resolvidos)
-    k5.metric("🔄 Retrabalho", retrabalho, help="Total de reaberturas no período (cada uma conta como retrabalho).")
-    k6.metric("⏱️ Tempo médio", f"{tempo_medio:.1f}h" if not pd.isna(tempo_medio) else "—")
+    k4.metric("🟠 Pendentes", pendentes,
+              help="Houve retorno do setor, mas o assunto não foi finalizado: ficou uma "
+                   "pendência. O chamado precisa ser retomado pela Abertura de pendência.")
+    k5.metric("🟢 Resolvidos", resolvidos)
+    k6.metric("🔄 Retrabalho", retrabalho,
+              help="Quantas vezes chamados voltaram para Em andamento no período — "
+                   "somando reaberturas e aberturas de pendência.")
+    k7.metric("⏱️ Tempo médio", f"{tempo_medio:.1f}h" if not pd.isna(tempo_medio) else "—")
 
     st.markdown("---")
     if df_f.empty:
@@ -328,14 +342,14 @@ def tela_dashboard():
         ca, cb = st.columns(2)
         with ca:
             st.markdown("##### Chamados por Tipo")
-            st.caption("Inclui o retrabalho: chamados reabertos contam como 2.")
+            st.caption(NOTA_PESO)
             df_t = df_f.groupby("tipo")["peso"].sum().reset_index(name="qtd").sort_values("qtd", ascending=False)
             fig1 = px.bar(df_t, x="qtd", y="tipo", orientation="h", color="qtd", color_continuous_scale="Blues", labels={"qtd":"Qtd","tipo":""})
             fig1.update_layout(showlegend=False, coloraxis_showscale=False, margin=dict(l=0,r=0,t=0,b=0), height=300)
             st.plotly_chart(fig1, use_container_width=True)
         with cb:
             st.markdown("##### Chamados por Setor")
-            st.caption("Inclui o retrabalho: chamados reabertos contam como 2.")
+            st.caption(NOTA_PESO)
             df_s = df_f.groupby("setor")["peso"].sum().reset_index(name="qtd").sort_values("qtd", ascending=False)
             fig2 = px.bar(df_s, x="qtd", y="setor", orientation="h", color="qtd", color_continuous_scale="Greens", labels={"qtd":"Qtd","setor":""})
             fig2.update_layout(showlegend=False, coloraxis_showscale=False, margin=dict(l=0,r=0,t=0,b=0), height=300)
@@ -343,7 +357,8 @@ def tela_dashboard():
 
     # === Performance por Setor (régua de erros) ===
     st.markdown("##### 🎯 Performance por Setor")
-    st.caption("Baseada na quantidade de chamados (erros) por setor. Chamados reabertos contam como 2 (retrabalho). "
+    st.caption("Baseada na quantidade de chamados (erros) por setor. Chamados retomados contam como 2 "
+               "(retrabalho), seja por reabertura ou por abertura de pendência. "
                "Fechamentos de período não entram na contagem.")
     df_perf = montar_performance(df_f)
     if df_perf.empty:
@@ -490,8 +505,14 @@ def tela_dashboard():
     if "Resolução" in df_export.columns:
         colunas = [c for c in df_export.columns if c != "Resolução"] + ["Resolução"]
         df_export = df_export[colunas]
-    df_kpi = pd.DataFrame({"Indicador":["Total","Abertos","Em Andamento","Resolvidos","Tempo Médio (h)"],
-                            "Valor":[total,abertos,em_andamento,resolvidos,f"{tempo_medio:.1f}" if not pd.isna(tempo_medio) else "—"]})
+    # KPIs da planilha: os MESMOS da tela, na mesma ordem (antes faltavam
+    # Pendentes e Retrabalho, o que fazia a planilha divergir do dashboard).
+    df_kpi = pd.DataFrame({
+        "Indicador": ["Total","Abertos","Em Andamento","Pendentes","Resolvidos",
+                      "Retrabalho","Tempo Médio (h)"],
+        "Valor": [total, abertos, em_andamento, pendentes, resolvidos, retrabalho,
+                  f"{tempo_medio:.1f}" if not pd.isna(tempo_medio) else "—"]
+    })
     df_te = df_f.groupby("tipo").size().reset_index(name="Quantidade").sort_values("Quantidade",ascending=False).rename(columns={"tipo":"Tipo"})
     df_se = df_f.groupby("setor").size().reset_index(name="Quantidade").sort_values("Quantidade",ascending=False).rename(columns={"setor":"Setor"})
     df_ee = df_f.groupby("empresa").size().reset_index(name="Quantidade").rename(columns={"empresa":"Empresa"})
