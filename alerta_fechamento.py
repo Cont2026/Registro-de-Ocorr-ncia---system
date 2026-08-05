@@ -1,12 +1,20 @@
 """
 Alerta de Fechamento (importação contábil) — ROC / Grupo LLE
-Roda 1x/dia às 12h (via GitHub Actions). Avisa, 1 DIA ÚTIL ANTES, que haverá
-um fechamento/importação, informando a parcial, o período (data a data) e a
-data da importação.
+Roda 2x/dia (via GitHub Actions), informando a parcial, o período (data a data)
+e a data da importação:
+
+  · 08:00 (BRT) — avisa que a importação é HOJE (lembrete do dia).
+  · 12:00 (BRT) — avisa que a importação é AMANHÃ (pré-aviso da véspera).
+
+Qual dos dois avisos sai é definido pela variável MODO_ALERTA:
+  "hoje"   -> só o lembrete do próprio dia
+  "amanha" -> só o pré-aviso da véspera
+  "ambos"  -> os dois, se as duas condições ocorrerem (padrão de segurança)
 
 Regras:
-  - Verifica se o PRÓXIMO DIA ÚTIL (pulando fim de semana e feriados) é a data
-    de alguma das 4 parciais/importações (tabela 'fechamentos').
+  - Véspera: verifica se o PRÓXIMO DIA ÚTIL (pulando fim de semana e feriados)
+    é a data de alguma das 4 parciais/importações (tabela 'fechamentos').
+  - Dia: verifica se HOJE é a data de alguma dessas importações.
   - Parciais 1, 2 e 3: aviso normal de fechamento parcial.
   - Parcial 4: é o FECHAMENTO do mês (Consolidação) — aviso destacado.
   - Avisa TODOS os setores + a CONTABILIDADE + a LISTA FIXA de destinatários
@@ -43,6 +51,13 @@ SMTP_PASSWORD = os.environ["SMTP_PASSWORD"]
 REMETENTE_EMAIL = os.environ.get("REMETENTE_EMAIL", "contabilidade@grupolle.com.br")
 REMETENTE_NOME = os.environ.get("REMETENTE_NOME", "ROC - Registro de Ocorrencias Contabeis")
 APP_URL = os.environ.get("APP_URL", "https://registro-de-ocorrencias-system-iaw5pyzvhkchnum6kseate.streamlit.app")
+
+# Qual aviso enviar nesta execução: "hoje", "amanha" ou "ambos".
+# Vem do workflow (um valor para cada horário do cron). Se vier vazio ou errado,
+# assume "ambos" — o controle de duplicidade impede aviso repetido.
+MODO_ALERTA = (os.environ.get("MODO_ALERTA", "ambos") or "ambos").strip().lower()
+if MODO_ALERTA not in ("hoje", "amanha", "ambos"):
+    MODO_ALERTA = "ambos"
 
 # =====================================================================
 # DESTINATÁRIOS FIXOS DO ALERTA DE FECHAMENTO
@@ -168,12 +183,24 @@ def registrar(conn, chave, destinatario, assunto, sucesso):
              datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"), 1 if sucesso else 0))
     conn.commit()
 
-def montar_email(titulo, nome_evento, data_evento, periodo_ini, periodo_fim, eh_final):
-    cor = "#EF4444" if eh_final else "#041747"
-    destaque = "🔒 FECHAMENTO DO MÊS" if eh_final else "📅 Fechamento Parcial"
+def montar_email(titulo, nome_evento, data_evento, periodo_ini, periodo_fim, eh_final,
+                 eh_hoje=False):
+    cor = "#EF4444" if (eh_final or eh_hoje) else "#041747"
+    if eh_hoje:
+        destaque = "⏰ FECHAMENTO DO MÊS É HOJE" if eh_final else "⏰ FECHAMENTO PARCIAL É HOJE"
+    else:
+        destaque = "🔒 FECHAMENTO DO MÊS" if eh_final else "📅 Fechamento Parcial"
     intro = ("Esta é a <strong>última importação (fechamento) da competência</strong>. "
              "Fiquem atentos ao prazo." if eh_final else
              "Este é um <strong>fechamento parcial</strong> da competência.")
+    if eh_hoje:
+        quando = (f"<strong>Hoje ({fmt(data_evento)})</strong> acontece o "
+                  f"<strong>{nome_evento}</strong>. Últimas pendências do período devem ser "
+                  f"resolvidas antes da importação.")
+    else:
+        quando = (f"<strong>Amanhã ({fmt(data_evento)})</strong> haverá o "
+                  f"<strong>{nome_evento}</strong>. "
+                  f"Providenciem as pendências do período antes da importação.")
     linha_periodo = ""
     if periodo_ini or periodo_fim:
         linha_periodo = f"""<tr><td style="padding:8px;background:#f5f7fa;font-weight:600;color:#041747;width:45%;">Período a importar</td>
@@ -188,9 +215,7 @@ def montar_email(titulo, nome_evento, data_evento, periodo_ini, periodo_fim, eh_
         <div style="background:white;padding:24px;border-radius:0 0 8px 8px;border:1px solid #e8e8e8;">
             <h2 style="color:{cor};font-size:18px;margin:0 0 8px;">{destaque}</h2>
             <p style="color:#333;font-size:14px;margin:0 0 4px;">{intro}</p>
-            <p style="color:#333;font-size:14px;margin:0 0 16px;">
-            <strong>Amanhã ({fmt(data_evento)})</strong> haverá o <strong>{nome_evento}</strong>.
-            Providenciem as pendências do período antes da importação.</p>
+            <p style="color:#333;font-size:14px;margin:0 0 16px;">{quando}</p>
             <table style="width:100%;border-collapse:collapse;">
                 <tr><td style="padding:8px;background:#f5f7fa;font-weight:600;color:#041747;width:45%;">Evento</td>
                     <td style="padding:8px;color:#333;">{nome_evento}</td></tr>
@@ -246,9 +271,11 @@ def enviar_email(destinatarios, assunto, corpo_html):
             s.send_message(msg, from_addr=REMETENTE_EMAIL, to_addrs=dest)
     return True
 
-def coletar_eventos_do_dia(conn, alvo):
+def coletar_eventos_do_dia(conn, alvo, momento):
     """Retorna a lista de eventos de fechamento cuja data de importação é 'alvo'.
-    Cada evento: (nome_evento, data, periodo_ini, periodo_fim, eh_final, chave_dedup)."""
+    'momento' é "hoje" ou "vespera" — entra na chave de duplicidade para que o
+    lembrete do dia NÃO seja bloqueado pelo pré-aviso da véspera (e vice-versa).
+    Cada evento: (nome, data, periodo_ini, periodo_fim, eh_final, chave, eh_hoje)."""
     eventos = []
 
     with conn.cursor() as cur:
@@ -262,23 +289,29 @@ def coletar_eventos_do_dia(conn, alvo):
         tipo_norm = normaliza_tipo(tipo)
         eh_final = (tipo_norm == "Fechamento Parcial 4")
         nome = "Fechamento Parcial 4 (Consolidação)" if eh_final else tipo_norm
-        chave = f"FECH-{d.strftime('%Y%m%d')}-{tipo_norm.replace(' ', '')}"
-        eventos.append((nome, d, to_date(pini), to_date(pfim), eh_final, chave))
+        sufixo = "HOJE" if momento == "hoje" else "VESP"
+        chave = f"FECH-{d.strftime('%Y%m%d')}-{tipo_norm.replace(' ', '')}-{sufixo}"
+        eventos.append((nome, d, to_date(pini), to_date(pfim), eh_final, chave,
+                        momento == "hoje"))
 
     return eventos
 
 def main():
     agora = datetime.now(BRASILIA)
     hoje = agora.date()
-    alvo = proximo_dia_util(hoje)  # o "amanhã útil" que queremos avisar
+    alvo_vespera = proximo_dia_util(hoje)  # o "amanhã útil" que queremos avisar
     print(f"[ROC-FECH] Verificando em {agora.strftime('%d/%m/%Y %H:%M')} (Brasília). "
-          f"Próximo dia útil: {fmt(alvo)}")
+          f"Modo: {MODO_ALERTA} · Hoje: {fmt(hoje)} · Próximo dia útil: {fmt(alvo_vespera)}")
 
     conn = conectar()
     try:
-        eventos = coletar_eventos_do_dia(conn, alvo)
+        eventos = []
+        if MODO_ALERTA in ("hoje", "ambos"):
+            eventos += coletar_eventos_do_dia(conn, hoje, "hoje")
+        if MODO_ALERTA in ("amanha", "ambos"):
+            eventos += coletar_eventos_do_dia(conn, alvo_vespera, "vespera")
         if not eventos:
-            print("[ROC-FECH] Nenhum fechamento no próximo dia útil. Nada a enviar.")
+            print("[ROC-FECH] Nenhum fechamento a avisar neste modo. Nada a enviar.")
             return
 
         # Destinatários: setores + contabilidade + lista fixa (1 e-mail só, com CC).
@@ -294,13 +327,14 @@ def main():
 
         total = 0
         vistos_chave = set()
-        for nome, d, pini, pfim, eh_final, chave in eventos:
+        for nome, d, pini, pfim, eh_final, chave, eh_hoje in eventos:
             if chave in vistos_chave:
                 continue
             vistos_chave.add(chave)
 
-            assunto = f"ROC — Amanhã: {nome} ({fmt(d)})"
-            corpo = montar_email(assunto, nome, d, pini, pfim, eh_final)
+            prefixo = "Hoje" if eh_hoje else "Amanhã"
+            assunto = f"ROC — {prefixo}: {nome} ({fmt(d)})"
+            corpo = montar_email(assunto, nome, d, pini, pfim, eh_final, eh_hoje=eh_hoje)
 
             if ja_enviado(conn, chave):
                 print(f"   (já enviado) {chave}")
