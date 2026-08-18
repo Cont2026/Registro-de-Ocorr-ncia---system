@@ -397,17 +397,24 @@ def sou_autor(autor, usuario_atual):
     return a == u or a.startswith(f"{u} · ")
 
 def salvar_movimentacao(protocolo, setor_chamado, tipo, status_atual,
-                        novo_status, nome, texto, arquivos):
-    """Registra numa só ação a mensagem e/ou a mudança de status e dispara UM
-    e-mail com tudo o que aconteceu (em vez de dois disparos quase simultâneos
-    para as mesmas pessoas). Devolve (ok, aviso)."""
+                        novo_status, nome, texto, arquivos,
+                        copias_novas=None, copias_atuais=None, pode_copia=False):
+    """Registra numa só ação a mudança de status, a mensagem, o anexo e os setores
+    em cópia — e dispara UM e-mail com tudo o que aconteceu, em vez de vários
+    disparos quase simultâneos para as mesmas pessoas. Devolve (ok, aviso)."""
     nome = (nome or "").strip()
     texto = (texto or "").strip()
     tem_anexo = bool(arquivos)
     status_mudou = bool(novo_status) and novo_status != status_atual
 
-    if not status_mudou and not texto and not tem_anexo:
-        return False, "Escreva uma mensagem, anexe um arquivo ou altere o status."
+    lista_atual = list(copias_atuais or [])
+    lista_nova = list(copias_novas or []) if pode_copia else lista_atual
+    copias_mudaram = pode_copia and set(lista_nova) != set(lista_atual)
+    copias_adicionadas = sorted(set(lista_nova) - set(lista_atual)) if pode_copia else []
+
+    if not status_mudou and not texto and not tem_anexo and not copias_mudaram:
+        return False, ("Nada para salvar: altere o status, escreva uma mensagem, "
+                       "anexe um arquivo ou ajuste os setores em cópia.")
     if not nome:
         return False, "Informe seu nome — toda movimentação precisa ficar identificada."
     if tem_anexo:
@@ -416,6 +423,12 @@ def salvar_movimentacao(protocolo, setor_chamado, tipo, status_atual,
             return False, aviso_anexo
 
     autor = montar_autor(nome)
+
+    # 0) Setores em cópia — salvos ANTES do e-mail, de propósito: assim os setores
+    # recém-incluídos já entram na lista de destinatários do aviso, sem precisar
+    # de um segundo e-mail. (salvar_copias limpa o cache do mapa de cópias.)
+    if copias_mudaram:
+        salvar_copias(protocolo, lista_nova)
 
     # 1) Mensagem no chat (com anexos, se houver)
     if texto or tem_anexo:
@@ -430,27 +443,43 @@ def salvar_movimentacao(protocolo, setor_chamado, tipo, status_atual,
             resolvido_em=CASE WHEN %s='Resolvido' THEN %s ELSE resolvido_em END WHERE protocolo=%s""",
             (novo_status, nome, agora, novo_status, agora, protocolo))
 
-    # 3) UM e-mail só, com o que houver
+    # 3) UM e-mail só, com o que houver. Os setores recém-incluídos em cópia já
+    # estão dentro de 'destinos', então não sai um segundo e-mail para eles.
+    houve_movimentacao = status_mudou or bool(texto) or tem_anexo
     try:
-        destinos = list(emails_interessados(protocolo, setor_chamado, st.session_state.get("email")))
-        if destinos:
-            texto_email = texto if texto else ("[anexo enviado]" if tem_anexo else "")
-            if status_mudou:
-                data_br = datetime.now(BRASILIA).strftime("%d/%m/%Y às %H:%M")
-                if novo_status == "Resolvido":
-                    email_conclusao_chamado(None, destinos, protocolo, tipo, data_br,
-                                            atendente=nome, mensagem=texto_email)
+        if houve_movimentacao:
+            destinos = list(emails_interessados(protocolo, setor_chamado,
+                                                st.session_state.get("email")))
+            if destinos:
+                texto_email = texto if texto else ("[anexo enviado]" if tem_anexo else "")
+                if status_mudou:
+                    data_br = datetime.now(BRASILIA).strftime("%d/%m/%Y às %H:%M")
+                    if novo_status == "Resolvido":
+                        email_conclusao_chamado(None, destinos, protocolo, tipo, data_br,
+                                                atendente=nome, mensagem=texto_email)
+                    else:
+                        email_atualizacao_chamado(destinos, protocolo, novo_status,
+                                                  setor_chamado, atendente=nome,
+                                                  mensagem=texto_email)
                 else:
-                    email_atualizacao_chamado(destinos, protocolo, novo_status, setor_chamado,
-                                              atendente=nome, mensagem=texto_email)
-            else:
-                email_nova_mensagem(destinos, protocolo, autor, texto_email)
+                    email_nova_mensagem(destinos, protocolo, autor, texto_email)
+        elif copias_adicionadas:
+            # Só a cópia mudou: sem esse aviso o setor incluído nunca saberia que
+            # passou a acompanhar o chamado.
+            for s in copias_adicionadas:
+                try:
+                    email_s = buscar_email_setor(s)
+                    if email_s:
+                        email_setor_em_copia(email_s, protocolo, s, setor_chamado)
+                except:
+                    pass
     except:
         pass
 
     return True, ""
 
-def exibir_chat(protocolo, setor_chamado, status=None, com_status=False, tipo=""):
+def exibir_chat(protocolo, setor_chamado, status=None, com_status=False, tipo="",
+                pode_copia=False, copias_atuais=None):
     st.markdown("#### 💬 Acompanhamento")
     mensagens = carregar_mensagens(protocolo)
     if not mensagens:
@@ -502,6 +531,9 @@ def exibir_chat(protocolo, setor_chamado, status=None, com_status=False, tipo=""
     OPCOES_STATUS = list(STATUS_TODOS)
     TIPOS_ARQ = ["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"]
     encerrado = str(status or "") in STATUS_ENCERRADOS
+    lista_copias = list(copias_atuais or [])
+    setores_copia = carregar_setores_disponiveis(setor_chamado) if pode_copia else []
+    default_copias = [c for c in lista_copias if c in setores_copia]
 
     # Chamado encerrado (Resolvido ou Cancelado): mostra o histórico acima,
     # mas não permite novas mensagens. A contabilidade ainda pode corrigir o
@@ -519,23 +551,31 @@ def exibir_chat(protocolo, setor_chamado, status=None, com_status=False, tipo=""
             f"padding:14px 16px;text-align:center;color:#666;font-size:13px;'>"
             f"{aviso_travado}</div>",
             unsafe_allow_html=True)
-        if com_status:
+        if com_status or pode_copia:
             with st.form(key=f"statusonly_{protocolo}"):
-                idx = OPCOES_STATUS.index(status) if status in OPCOES_STATUS else 0
-                novo_status = st.selectbox("Corrigir status", OPCOES_STATUS, index=idx)
+                if com_status:
+                    idx = OPCOES_STATUS.index(status) if status in OPCOES_STATUS else 0
+                    novo_status = st.selectbox("Corrigir status", OPCOES_STATUS, index=idx)
+                else:
+                    novo_status = None
+                if pode_copia:
+                    copias_sel = st.multiselect("👥 Setores em cópia", setores_copia,
+                        default=default_copias, key=f"copia_{protocolo}")
+                else:
+                    copias_sel = lista_copias
                 nome_resp = st.text_input("🙋 Seu nome *",
                     placeholder="Quem está fazendo esta alteração?")
-                if st.form_submit_button("💾 Salvar status", use_container_width=True):
-                    if novo_status == status:
-                        st.warning("Selecione um status diferente do atual.")
+                if st.form_submit_button("💾 Salvar", use_container_width=True):
+                    ok, aviso = salvar_movimentacao(protocolo, setor_chamado, tipo, status,
+                                                    novo_status, nome_resp, "", None,
+                                                    copias_novas=copias_sel,
+                                                    copias_atuais=lista_copias,
+                                                    pode_copia=pode_copia)
+                    if not ok:
+                        st.warning(aviso)
                     else:
-                        ok, aviso = salvar_movimentacao(protocolo, setor_chamado, tipo, status,
-                                                        novo_status, nome_resp, "", None)
-                        if not ok:
-                            st.warning(aviso)
-                        else:
-                            st.cache_data.clear()
-                            st.rerun()
+                        st.cache_data.clear()
+                        st.rerun()
         return
 
     # === FORMULÁRIO ÚNICO ===
@@ -552,11 +592,20 @@ def exibir_chat(protocolo, setor_chamado, status=None, com_status=False, tipo=""
                 height=80, label_visibility="collapsed")
             img = st.file_uploader(LABEL_ANEXO, type=TIPOS_ARQ,
                 accept_multiple_files=True, key=f"chat_img_{protocolo}")
+            if pode_copia:
+                copias_sel = st.multiselect("👥 Setores em cópia", setores_copia,
+                    default=default_copias, key=f"copia_{protocolo}",
+                    help="Os setores marcados passam a acompanhar e responder este chamado.")
+            else:
+                copias_sel = lista_copias
             nome_resp = st.text_input("🙋 Seu nome *",
                 placeholder="Quem está registrando esta movimentação?")
             if st.form_submit_button("💾 Salvar e enviar", use_container_width=True):
                 ok, aviso = salvar_movimentacao(protocolo, setor_chamado, tipo, status,
-                                                novo_status, nome_resp, nova_msg, img)
+                                                novo_status, nome_resp, nova_msg, img,
+                                                copias_novas=copias_sel,
+                                                copias_atuais=lista_copias,
+                                                pode_copia=pode_copia)
                 if not ok:
                     st.warning(aviso)
                 else:
@@ -568,11 +617,20 @@ def exibir_chat(protocolo, setor_chamado, status=None, com_status=False, tipo=""
                 height=80, label_visibility="collapsed")
             img = st.file_uploader(LABEL_ANEXO, type=TIPOS_ARQ,
                 accept_multiple_files=True, key=f"chat_img_{protocolo}")
+            if pode_copia:
+                copias_sel = st.multiselect("👥 Setores em cópia", setores_copia,
+                    default=default_copias, key=f"copia_{protocolo}",
+                    help="Os setores marcados passam a acompanhar e responder este chamado.")
+            else:
+                copias_sel = lista_copias
             nome_resp = st.text_input("🙋 Seu nome *",
                 placeholder="Quem está enviando esta mensagem?")
             if st.form_submit_button("📨 Enviar", use_container_width=True):
                 ok, aviso = salvar_movimentacao(protocolo, setor_chamado, tipo, status,
-                                                None, nome_resp, nova_msg, img)
+                                                None, nome_resp, nova_msg, img,
+                                                copias_novas=copias_sel,
+                                                copias_atuais=lista_copias,
+                                                pode_copia=pode_copia)
                 if not ok:
                     st.warning(aviso)
                 else:
@@ -1216,27 +1274,11 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
         # do Acompanhamento, no fim do chamado, junto com a mensagem e o anexo —
         # uma ação só, um botão só, um e-mail só.
 
-        # Editar setores em cópia (contabilidade ou o setor que abriu)
+        # Os setores em cópia NÃO têm mais botão próprio: eles foram para o
+        # formulário único do Acompanhamento, no fim do chamado, junto com status,
+        # mensagem e anexo — uma ação só, um botão só, um e-mail só.
         eh_dono = (st.session_state.perfil != "contabilidade" and st.session_state.setor == setor)
-        if eh_contabilidade or eh_dono:
-            st.markdown("---")
-            setores_disp = carregar_setores_disponiveis(setor)
-            default_copias = [c for c in copias if c in setores_disp]
-            novas_copias = st.multiselect("👥 Setores em cópia", setores_disp,
-                default=default_copias, key=f"copia_{protocolo}")
-            if st.button("💾 Salvar cópia", key=f"savecopia_{protocolo}"):
-                adicionados = set(novas_copias) - set(copias)
-                salvar_copias(protocolo, novas_copias)
-                for s in adicionados:
-                    try:
-                        email_s = buscar_email_setor(s)
-                        if email_s:
-                            email_setor_em_copia(email_s, protocolo, s, setor)
-                    except:
-                        pass
-                st.cache_data.clear()
-                st.success("✅ Cópia atualizada!")
-                st.rerun()
+        pode_copia = bool(eh_contabilidade or eh_dono)
 
         # Retomada do chamado encerrado: disponível para setor e contabilidade.
         # Em 'Pendente' o evento se chama ABERTURA DE PENDÊNCIA; em 'Resolvido' e
@@ -1281,7 +1323,8 @@ def exibir_chamado(protocolo, tipo, empresa, status, prioridade, parceiro, nf, a
         # com_status: só a contabilidade altera status, e não em INFORMAR ENTREGÁVEIS
         # (registro informativo, sem ciclo de validação).
         exibir_chat(protocolo, setor, status,
-                    com_status=(eh_contabilidade and not eh_entregaveis), tipo=tipo)
+                    com_status=(eh_contabilidade and not eh_entregaveis), tipo=tipo,
+                    pode_copia=pode_copia, copias_atuais=copias)
 
 def tela_meus_chamados(protocolo_aberto=None):
     st.title("📋 Minhas Solicitações")
