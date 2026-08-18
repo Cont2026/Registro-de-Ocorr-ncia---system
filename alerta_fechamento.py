@@ -339,13 +339,21 @@ def main():
             if ja_enviado(conn, chave):
                 print(f"   (já enviado) {chave}")
                 continue
+            ok, motivo = False, ""
             try:
                 ok = enviar_email(destinatarios, assunto, corpo)
             except Exception as e:
                 ok = False
+                motivo = f"[ERRO {type(e).__name__}] {str(e)[:300]}"
                 print(f"   ERRO ao enviar {chave}: {e}")
+            if not ok and not motivo:
+                motivo = "[ERRO] o servidor de e-mail não confirmou o envio"
+            # O motivo da falha vai gravado JUNTO com o assunto, para aparecer na
+            # aba Notificações do admin. Antes o erro só existia no log do GitHub,
+            # e quem olhava o sistema não tinha como saber o que deu errado.
+            assunto_log = (assunto + " " + motivo).strip() if motivo else assunto
             for dest in destinatarios:
-                registrar(conn, chave, dest, assunto, ok)
+                registrar(conn, chave, dest, assunto_log, ok)
             if ok:
                 total += 1
                 print(f"   [enviado] {nome} ({fmt(d)}) -> {len(destinatarios)} destinatários")
