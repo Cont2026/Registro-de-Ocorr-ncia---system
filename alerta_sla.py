@@ -12,6 +12,9 @@ Regras:
   - Avisa o SETOR responsável E a CONTABILIDADE — em 1 e-mail só, com cópia.
   - INFORMAR ENTREGÁVEIS é um registro apenas informativo (sem validação da
     contabilidade): fica FORA do SLA — não recebe pré-aviso, alerta nem cancelamento.
+  - O cancelamento automático de 24h só acontece se o aviso tiver sido enviado
+    com sucesso. Se o e-mail falhar, o chamado permanece ativo e o alerta é
+    tentado de novo na próxima execução — nunca se cancela um chamado às escuras.
   - Chamado com status PENDENTE também fica fora: a seleção pega apenas
     'Aberto' e 'Em andamento', então quem está aguardando tratativa de pendência
     não é cobrado nem cancelado automaticamente.
@@ -284,23 +287,41 @@ def main():
             # 1 e-mail só: setor no 'Para', contabilidade em cópia.
             destinatarios = juntar_sem_repetir([email_setor(conn, setor)], [cont_email])
 
-            if destinatarios and not ja_enviado(conn, chave):
-                try:
-                    ok = enviar_email(destinatarios, assunto, corpo)
-                except Exception as e:
-                    ok = False
-                    print(f"   ERRO ao enviar {protocolo}: {e}")
-                for dest in destinatarios:
-                    registrar(conn, chave, dest, assunto, ok)
-                if ok:
-                    total += 1
-                    print(f"   [{nivel}] {protocolo} ({int(horas)}h) -> "
-                          f"{len(destinatarios)} destinatário(s)")
+            # aviso_entregue controla o cancelamento automático: um chamado só é
+            # cancelado se o aviso REALMENTE saiu. Antes o cancelamento acontecia
+            # mesmo com o e-mail falhando — o chamado morria e ninguém sabia.
+            aviso_entregue = False
+            if destinatarios:
+                if ja_enviado(conn, chave):
+                    aviso_entregue = True  # já saiu numa execução anterior
+                else:
+                    ok, motivo = False, ""
+                    try:
+                        ok = enviar_email(destinatarios, assunto, corpo)
+                    except Exception as e:
+                        ok = False
+                        motivo = f"[ERRO {type(e).__name__}] {str(e)[:300]}"
+                        print(f"   ERRO ao enviar {protocolo}: {e}")
+                    if not ok and not motivo:
+                        motivo = "[ERRO] o servidor de e-mail não confirmou o envio"
+                    # O motivo da falha vai junto com o assunto, para aparecer na
+                    # aba Notificações do admin — e não só no log do GitHub.
+                    assunto_log = (assunto + " " + motivo).strip() if motivo else assunto
+                    for dest in destinatarios:
+                        registrar(conn, chave, dest, assunto_log, ok)
+                    aviso_entregue = bool(ok)
+                    if ok:
+                        total += 1
+                        print(f"   [{nivel}] {protocolo} ({int(horas)}h) -> "
+                              f"{len(destinatarios)} destinatário(s)")
 
             # Ao estourar 24h úteis: status muda automaticamente para Cancelado.
             # O filtro de status no UPDATE garante que só Aberto/Em andamento são
             # cancelados — um chamado Pendente nunca é atingido.
-            if nivel == "estourado":
+            if nivel == "estourado" and not aviso_entregue:
+                print(f"   -> {protocolo} NÃO cancelado: o aviso de 24h não pôde ser "
+                      f"enviado. O chamado segue ativo e será tentado de novo.")
+            elif nivel == "estourado":
                 try:
                     with conn.cursor() as cur:
                         cur.execute("""UPDATE chamados SET status='Cancelado',
