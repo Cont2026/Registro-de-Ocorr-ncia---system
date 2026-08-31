@@ -868,7 +868,7 @@ def tela_novo_chamado(preview=False, setor_preview=None):
         solicitante_f = st.text_input("👤 Nome do Solicitante *", key="folha_solic")
         copia_folha = st.multiselect("👥 Setores em cópia (opcional)",
             carregar_setores_disponiveis(setor_atual), key="folha_copia")
-        arq_folha = st.file_uploader(LABEL_ANEXO_OBR, type=["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"], accept_multiple_files=True, key="folha_arquivo")
+        arq_folha = st.file_uploader(LABEL_ANEXO, type=["pdf","png","jpg","jpeg","gif","webp","xlsx","xls","csv","ods","xml","docx","txt","zip"], accept_multiple_files=True, key="folha_arquivo")
         obs_folha = st.text_area("📝 Observação *", placeholder="Descreva a solicitação...", key="folha_obs")
 
         st.markdown("---")
@@ -882,7 +882,8 @@ def tela_novo_chamado(preview=False, setor_preview=None):
             if inc_folha == "Outros" and not inc_folha_outros.strip(): erros.append("Descrição da inconsistência")
             if not fin_baixado_f: erros.append("Financeiro Baixado")
             if not solicitante_f.strip(): erros.append("Nome do Solicitante")
-            if not arq_folha: erros.append("Anexo")
+            # O anexo é OPCIONAL na Folha de Pagamento: muitas divergências de folha
+            # são explicadas na observação, sem documento para anexar.
             if not obs_folha.strip(): erros.append("Observação")
             if erros:
                 st.error(f"⚠️ Preencha: {', '.join(erros)}")
