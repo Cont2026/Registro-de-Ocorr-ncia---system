@@ -339,7 +339,7 @@ def tela_tratativa():
         solicitante_f = st.text_input("👤 Nome do Solicitante *", key="trat_folha_solic")
         copia_f = st.multiselect("👥 Setores em cópia (opcional)", nomes_copia, key="trat_folha_copia",
             help="Esses setores recebem aviso do chamado em cópia.")
-        arq_f = st.file_uploader(LABEL_ANEXO_OBR, type=TIPOS_ARQ, accept_multiple_files=True, key="trat_folha_arq")
+        arq_f = st.file_uploader(LABEL_ANEXO, type=TIPOS_ARQ, accept_multiple_files=True, key="trat_folha_arq")
         obs_f = st.text_area("📝 Observacao *", placeholder="Descreva a solicitação...", key="trat_folha_obs")
 
         st.markdown("---")
@@ -351,7 +351,7 @@ def tela_tratativa():
             if inc_f == "Outros" and not inc_f_outros.strip(): erros.append("Descricao da inconsistencia")
             if not fin_baixado_f: erros.append("Financeiro Baixado")
             if not solicitante_f.strip(): erros.append("Nome do Solicitante")
-            if not arq_f: erros.append("Anexo")
+            # O anexo é OPCIONAL na Folha de Pagamento (mesma regra da tela do setor).
             if not obs_f.strip(): erros.append("Observacao")
             if erros:
                 st.error(f"Preencha: {', '.join(erros)}")
