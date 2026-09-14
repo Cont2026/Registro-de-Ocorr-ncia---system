@@ -5,7 +5,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from modules.email_service import enviar_email, email_novo_chamado, email_setor_em_copia
 from modules.chamados import (empacotar_anexos, desempacotar_anexos, anexos_para_email,
-    validar_anexos, LABEL_ANEXO, LABEL_ANEXO_OBR)
+    validar_anexos, gerar_protocolo, LABEL_ANEXO, LABEL_ANEXO_OBR)
 
 BRASILIA = ZoneInfo("America/Sao_Paulo")
 TIPO_FOLHA = "Folha de Pagamento"
@@ -67,21 +67,10 @@ def fmt_data(valor, com_hora=True):
             continue
     return s
 
-def gerar_protocolo():
-    """Gera o próximo protocolo do mês no formato ROC-AAAAMM-XXXX.
-    Em vez de contar todos os chamados (COUNT+1, que colide depois de exclusões),
-    pega o MAIOR número já usado no mês atual e soma 1. Reinicia a cada mês e
-    nunca colide, mesmo que chamados tenham sido apagados."""
-    prefixo = f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-"
-    try:
-        r = run_query(
-            "SELECT MAX(CAST(SUBSTRING(protocolo FROM %s) AS INTEGER)) "
-            "FROM chamados WHERE protocolo LIKE %s",
-            (len(prefixo) + 1, prefixo + "%"), fetch=True)
-        ultimo = r[0][0] if r and r[0] and r[0][0] is not None else 0
-    except:
-        ultimo = 0
-    return f"{prefixo}{str(ultimo + 1).zfill(4)}"
+# gerar_protocolo vem do modules.chamados: a numeração é uma só em todo o
+# sistema, controlada pela tabela controle_protocolo e pela sequência
+# protocolo_seq. Antes existia uma cópia da função aqui, o que abria espaço
+# para as duas telas numerarem de formas diferentes.
 
 def salvar_copia(protocolo, setor):
     try:
