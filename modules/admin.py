@@ -1,5 +1,7 @@
 import streamlit as st
 from database.connection import run_query
+
+BRASILIA = ZoneInfo("America/Sao_Paulo")
 from modules.email_service import email_troca_setor
 
 def tela_admin():
@@ -238,6 +240,85 @@ def tela_admin():
                 """, unsafe_allow_html=True)
 
     with aba[4]:
+        st.subheader("🔢 Numeração dos Chamados")
+        st.markdown("O número do chamado segue o formato **ROC-PERÍODO-0000**. O período e a "
+                    "contagem ficam guardados no banco e **não** mudam sozinhos: virar o mês ou "
+                    "limpar a base não reinicia nada. A contagem só recomeça quando você clicar "
+                    "no botão abaixo — normalmente ao encerrar um período.")
+
+        try:
+            info = run_query("""SELECT periodo, reiniciado_em, reiniciado_por
+                FROM controle_protocolo WHERE id=1""", fetch=True)
+            seq = run_query("SELECT last_value, is_called FROM protocolo_seq", fetch=True)
+            periodo_atual = info[0][0] if info and info[0] else None
+            reiniciado_em = info[0][1] if info and info[0] else None
+            reiniciado_por = info[0][2] if info and info[0] else None
+            ultimo, ja_usada = (seq[0][0], seq[0][1]) if seq and seq[0] else (1, False)
+            proximo_num = int(ultimo) + 1 if ja_usada else int(ultimo)
+            estrutura_ok = bool(periodo_atual)
+        except Exception:
+            estrutura_ok = False
+            periodo_atual = reiniciado_em = reiniciado_por = None
+            proximo_num = None
+
+        if not estrutura_ok:
+            st.warning("⚠️ A estrutura de controle da numeração ainda não foi criada no banco. "
+                       "Rode o script **01_controle_protocolo.sql** no Neon. Enquanto isso, o "
+                       "sistema continua numerando pelo modo antigo (reinicia a cada mês).")
+        else:
+            cn1, cn2, cn3 = st.columns(3)
+            cn1.metric("Período atual", periodo_atual)
+            cn2.metric("Próximo número", str(proximo_num).zfill(4))
+            cn3.metric("Próximo protocolo", f"ROC-{periodo_atual}-{str(proximo_num).zfill(4)}")
+            if reiniciado_em:
+                st.caption(f"Última reinicialização: {reiniciado_em}"
+                           + (f" · por {reiniciado_por}" if reiniciado_por else ""))
+
+            st.markdown("---")
+            novo_periodo = datetime.now(BRASILIA).strftime("%Y%m")
+            st.markdown(f"Ao reiniciar, o período passa a ser **{novo_periodo}** (mês atual) e a "
+                        f"contagem volta para **0001**.")
+            nome_reinicio = st.text_input("🙋 Seu nome *", key="nome_reinicio_protocolo",
+                placeholder="Quem está reiniciando a contagem?")
+            if st.button("🔄 Reiniciar contagem", use_container_width=True, key="btn_reiniciar_protocolo"):
+                if not nome_reinicio.strip():
+                    st.warning("⚠️ Informe seu nome antes de reiniciar.")
+                else:
+                    st.session_state["confirmar_reinicio_protocolo"] = True
+
+            if st.session_state.get("confirmar_reinicio_protocolo"):
+                st.warning(f"⚠️ Confirmar? Os próximos chamados passarão a ser numerados como "
+                           f"**ROC-{novo_periodo}-0001**. Os chamados já existentes não são "
+                           f"alterados.")
+                rc1, rc2 = st.columns(2)
+                with rc1:
+                    if st.button("Sim, reiniciar", use_container_width=True, type="primary",
+                                 key="reinicio_sim"):
+                        try:
+                            run_query("""UPDATE controle_protocolo
+                                SET periodo=%s, reiniciado_em=%s, reiniciado_por=%s WHERE id=1""",
+                                (novo_periodo,
+                                 datetime.now(BRASILIA).strftime("%Y-%m-%d %H:%M:%S"),
+                                 nome_reinicio.strip()))
+                            # A contagem recomeça em 1 — mas se já existirem chamados com esse
+                            # mesmo período (por exemplo, ao reiniciar duas vezes no mesmo mês),
+                            # ela continua depois do maior deles, para não repetir protocolo.
+                            run_query("""SELECT setval('protocolo_seq',
+                                COALESCE((SELECT MAX(CAST(SUBSTRING(protocolo FROM 12) AS INTEGER))
+                                          FROM chamados WHERE protocolo LIKE %s), 0) + 1, false)""",
+                                (f"ROC-{novo_periodo}-%",), fetch=True)
+                            st.session_state["confirmar_reinicio_protocolo"] = False
+                            st.cache_data.clear()
+                            st.success(f"✅ Contagem reiniciada. Período atual: {novo_periodo}.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Não foi possível reiniciar: {type(e).__name__}: {e}")
+                with rc2:
+                    if st.button("Cancelar", use_container_width=True, key="reinicio_nao"):
+                        st.session_state["confirmar_reinicio_protocolo"] = False
+                        st.rerun()
+
+        st.markdown("---")
         st.subheader("🔄 Trocar Setor Responsável")
         st.markdown("Transfere **qualquer chamado** (Aberto, Em andamento, Resolvido ou Cancelado) para outro "
                     "setor responsável. O novo setor e o setor anterior são avisados por e-mail. "
