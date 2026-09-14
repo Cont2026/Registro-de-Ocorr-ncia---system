@@ -13,22 +13,86 @@ def tela_admin():
 
     with aba[0]:
         st.subheader("Setores cadastrados")
+
+        # Mensagem guardada antes do st.rerun(), senão ela some antes de ser lida.
+        if st.session_state.get("msg_setor"):
+            st.success(st.session_state.pop("msg_setor"))
+
         usuarios = run_query("SELECT id, nome, email, setor_nome, ativo FROM usuarios WHERE perfil='setor' ORDER BY nome", fetch=True)
 
         for uid, nome, email, setor_nome, ativo in usuarios:
             status_icon = "🟢" if ativo else "🔴"
             with st.expander(f"{status_icon} {nome} — {email or '—'}"):
+                # O nome que vale para os chamados é o setor_nome; nome é o rótulo.
+                nome_exibido = (setor_nome or nome or "").strip()
                 c1, c2 = st.columns(2)
-                novo_email = c1.text_input("E-mail do setor", value=email or "", key=f"email_{uid}", placeholder="setor@grupolle.com.br")
-                novo_ativo = c2.selectbox("Status", [1, 0], index=0 if ativo else 1,
+                novo_nome = c1.text_input("Nome do Setor", value=nome_exibido, key=f"nome_{uid}")
+                novo_email = c2.text_input("E-mail do setor", value=email or "", key=f"email_{uid}", placeholder="setor@grupolle.com.br")
+                novo_ativo = st.selectbox("Status", [1, 0], index=0 if ativo else 1,
                     format_func=lambda x: "Ativo" if x == 1 else "Inativo", key=f"a_{uid}")
+                st.caption("Ao trocar o nome, ele é atualizado também nos chamados, nas cópias e nas "
+                           "tratativas já registrados — o histórico continua ligado a este setor. "
+                           "O login, a senha e o e-mail não mudam.")
                 b1, b2 = st.columns(2)
                 if b1.button("💾 Salvar", key=f"u_{uid}", use_container_width=True):
-                    run_query("UPDATE usuarios SET email=%s, ativo=%s WHERE id=%s",
-                        (novo_email.strip().lower(), novo_ativo, uid))
-                    st.cache_data.clear()
-                    st.success("✅ Atualizado!")
-                    st.rerun()
+                    nome_limpo = (novo_nome or "").strip()
+                    outros = [(str(o_setor or o_nome or "").strip().lower())
+                              for o_id, o_nome, _oe, o_setor, _oa in usuarios if o_id != uid]
+                    if not nome_limpo:
+                        st.error("⚠️ O nome do setor não pode ficar em branco.")
+                    elif nome_limpo.lower() != nome_exibido.lower() and nome_limpo.lower() in outros:
+                        st.error(f"⚠️ Já existe um setor chamado '{nome_limpo}'. "
+                                 f"Dois setores com o mesmo nome embaralhariam os chamados.")
+                    else:
+                        try:
+                            partes = []
+                            if nome_limpo != nome_exibido:
+                                # Conta o que será afetado, só para informar no final.
+                                r = run_query("""SELECT
+                                    (SELECT COUNT(*) FROM chamados WHERE setor IN (%s,%s)),
+                                    (SELECT COUNT(*) FROM chamados_copia WHERE setor IN (%s,%s)),
+                                    (SELECT COUNT(*) FROM solicitacoes_tratativa
+                                      WHERE setor_destino IN (%s,%s))""",
+                                    (nome or "", setor_nome or "") * 3, fetch=True)
+                                qt_ch, qt_cp, qt_tr = (r[0] if r and r[0] else (0, 0, 0))
+
+                                # Renomeia em TODAS as tabelas num comando só: o nome do setor
+                                # fica copiado dentro de cada chamado, cada cópia e cada
+                                # tratativa. Se mudasse só no cadastro, esses registros ficariam
+                                # apontando para um setor inexistente — sumiriam dos filtros e o
+                                # sistema não acharia mais o e-mail deles.
+                                run_query("""
+                                    WITH mapa AS (
+                                        SELECT %s::text AS a1, %s::text AS a2, %s::text AS novo
+                                    ),
+                                    upd_chamados AS (
+                                        UPDATE chamados c SET setor = mapa.novo
+                                        FROM mapa WHERE c.setor IN (mapa.a1, mapa.a2) RETURNING 1
+                                    ),
+                                    upd_copias AS (
+                                        UPDATE chamados_copia cc SET setor = mapa.novo
+                                        FROM mapa WHERE cc.setor IN (mapa.a1, mapa.a2) RETURNING 1
+                                    ),
+                                    upd_tratativas AS (
+                                        UPDATE solicitacoes_tratativa st SET setor_destino = mapa.novo
+                                        FROM mapa WHERE st.setor_destino IN (mapa.a1, mapa.a2) RETURNING 1
+                                    )
+                                    UPDATE usuarios u SET nome = mapa.novo, setor_nome = mapa.novo
+                                    FROM mapa WHERE u.id = %s""",
+                                    (nome or "", setor_nome or "", nome_limpo, uid))
+                                partes.append(f"renomeado para **{nome_limpo}** "
+                                              f"({qt_ch} chamado(s), {qt_cp} cópia(s) e "
+                                              f"{qt_tr} tratativa(s) atualizados)")
+
+                            run_query("UPDATE usuarios SET email=%s, ativo=%s WHERE id=%s",
+                                (novo_email.strip().lower(), novo_ativo, uid))
+                            if not partes:
+                                partes.append("e-mail e status atualizados")
+                            st.cache_data.clear()
+                            st.session_state["msg_setor"] = "✅ Setor " + " · ".join(partes) + "."
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Não foi possível salvar: {type(e).__name__}: {e}")
                 if b2.button("🔑 Resetar para roc2026", key=f"reset_{uid}", use_container_width=True,
                              help="Reseta a senha para roc2026. O setor terá que trocá-la no próximo acesso."):
                     run_query("UPDATE usuarios SET senha=%s, primeiro_acesso=1 WHERE id=%s",
