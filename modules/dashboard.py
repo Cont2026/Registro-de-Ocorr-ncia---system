@@ -74,6 +74,17 @@ def carregar_notificacoes_raw():
     return run_query("SELECT protocolo, tipo, enviado_em FROM notificacoes", fetch=True)
 
 @st.cache_data(ttl=30)
+def carregar_mensagens_todas():
+    """Histórico COMPLETO do chat, para a aba Mensagens da exportação.
+    Traz apenas o NOME do anexo, nunca o conteúdo (anexo_dados): o conteúdo é
+    base64 e trafegar isso a cada carregamento de tela foi o que esgotou o
+    limite de transferência do banco no passado."""
+    return run_query("""
+        SELECT chamado_protocolo, enviado_em, autor, perfil, mensagem, anexo_nome
+        FROM mensagens ORDER BY chamado_protocolo, enviado_em
+    """, fetch=True)
+
+@st.cache_data(ttl=30)
 def carregar_chamados_completo():
     return run_query("""
         SELECT protocolo, setor, empresa, tipo_inconsistencia,
@@ -203,7 +214,7 @@ def escrever_aba_performance(writer, df_perf):
                           color=("041747" if nivel == "Atenção" else "FFFFFF"), size=11)
     ajustar_colunas(ws)
 
-def escrever_aba_tabela(writer, sheet_name, titulo, df):
+def escrever_aba_tabela(writer, sheet_name, titulo, df, alinhar="center"):
     ws = writer.book.create_sheet(sheet_name)
     writer.sheets[sheet_name] = ws
     inserir_cabecalho_relatorio(ws, titulo)
@@ -223,7 +234,8 @@ def escrever_aba_tabela(writer, sheet_name, titulo, df):
         for col_num in range(1, n_cols + 1):
             cell = ws.cell(row=row_n, column=col_num)
             cell.font = DATA_FONT
-            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.alignment = Alignment(horizontal=alinhar, vertical="center",
+                                       wrap_text=(alinhar == "left"))
             cell.fill = fill
             cell.border = BORDER
     ajustar_colunas(ws)
@@ -250,11 +262,16 @@ def tela_dashboard():
     # Marca se o chamado é entregável (INFORMAR ENTREGÁVEIS, em qualquer parcial).
     df["eh_entregavel"] = df["tipo"].astype(str).str.startswith(PREFIXO_FECHAMENTO)
 
-    # === Seletor rápido: Tudo / Só inconsistências / Só entregáveis (sempre visível) ===
-    modo_exib = st.radio(
-        "Exibir",
-        ["Tudo", "Só inconsistências", "Só entregáveis"],
-        horizontal=True, key="dash_modo_exib", label_visibility="collapsed")
+    # Período do chamado, lido do próprio protocolo (ROC-202608-0001 -> 202608).
+    # O período é definido pela Contabilidade e não acompanha o mês do calendário:
+    # um chamado aberto em setembro pode pertencer à competência de agosto.
+    df["periodo"] = df["protocolo"].astype(str).str.extract(r"^ROC-(\d{6})-", expand=False)
+    df["periodo"] = df["periodo"].fillna("—")
+
+    # O seletor Tudo / Só inconsistências / Só entregáveis foi removido: o fluxo
+    # INFORMAR ENTREGÁVEIS saiu do ROC e a entrega passou a ser feita por e-mail,
+    # então o recorte deixou de ter uso. A coluna eh_entregavel continua existindo
+    # para os registros históricos e para o cálculo da Performance por Setor.
 
     # === Filtros detalhados, recolhíveis (começam fechados) ===
     with st.expander("🔎 Filtros detalhados", expanded=False):
@@ -271,22 +288,39 @@ def tela_dashboard():
             "Tipo (filtro detalhado — opcional)",
             opcoes_tipo, default=opcoes_tipo, key="dash_filtro_tipo")
 
-        # Filtro por data (base: Abertura ou Resolução) + período
-        d1, d2, d3 = st.columns(3)
-        campo_label = d1.selectbox("Filtrar data por", ["Abertura", "Resolução"])
-        col_data = "aberto_em" if campo_label == "Abertura" else "resolvido_em"
-        data_min = df["aberto_em"].min().date()
-        data_max = df["aberto_em"].max().date()
-        data_ini = d2.date_input("De", value=data_min, key="dash_data_ini")
-        data_fim = d3.date_input("Até", value=data_max, key="dash_data_fim")
+        # Recorte do tempo: por DATA (intervalo no calendário) ou por PERÍODO
+        # (a competência gravada no protocolo). Períodos são mais práticos no dia a
+        # dia, porque um chamado aberto em setembro pode ser da competência de agosto.
+        modo_tempo = st.radio("Recortar por", ["Período", "Data"], horizontal=True,
+            key="dash_modo_tempo",
+            help="Período usa a competência do protocolo. Data usa o calendário.")
 
-    # Máscara do seletor rápido (modo de exibição).
-    if modo_exib == "Só inconsistências":
-        mask_modo = ~df["eh_entregavel"]
-    elif modo_exib == "Só entregáveis":
-        mask_modo = df["eh_entregavel"]
-    else:
-        mask_modo = pd.Series(True, index=df.index)
+        periodos_disp = sorted([p for p in df["periodo"].dropna().unique().tolist() if p and p != "—"],
+                               reverse=True)
+        if "—" in df["periodo"].values:
+            periodos_disp = periodos_disp + ["—"]
+
+        def rotulo_periodo(p):
+            if p == "—":
+                return "— (sem período no protocolo)"
+            return f"{p[4:]}/{p[:4]}  ·  {p}"
+
+        if modo_tempo == "Período" and periodos_disp:
+            periodos_sel = st.multiselect("Período (competência)", periodos_disp,
+                default=periodos_disp, format_func=rotulo_periodo, key="dash_periodos")
+            mask_tempo = df["periodo"].isin(periodos_sel)
+            # Mantidas para as seções que mostram intervalo de datas.
+            data_ini = df["aberto_em"].min().date()
+            data_fim = df["aberto_em"].max().date()
+        else:
+            d1, d2, d3 = st.columns(3)
+            campo_label = d1.selectbox("Filtrar data por", ["Abertura", "Resolução"])
+            col_data = "aberto_em" if campo_label == "Abertura" else "resolvido_em"
+            data_min = df["aberto_em"].min().date()
+            data_max = df["aberto_em"].max().date()
+            data_ini = d2.date_input("De", value=data_min, key="dash_data_ini")
+            data_fim = d3.date_input("Até", value=data_max, key="dash_data_fim")
+            mask_tempo = df[col_data].dt.date.between(data_ini, data_fim)
 
     # Máscara do filtro de tipo detalhado (entregáveis agrupados).
     incons_sel = [t for t in filtro_tipo if t != LABEL_ENTREGAVEIS]
@@ -295,23 +329,18 @@ def tela_dashboard():
     if inclui_entregaveis:
         mask_tipo = mask_tipo | df["eh_entregavel"]
 
-    mask_data = df[col_data].dt.date.between(data_ini, data_fim)
-
     df_f = df[
         df["status"].isin(filtro_status) &
         df["empresa"].isin(filtro_empresa) &
         df["setor"].isin(filtro_setor) &
-        mask_modo &
         mask_tipo &
-        mask_data
+        mask_tempo
     ]
 
-    # No modo "Só entregáveis", os entregáveis são entregas concluídas (não têm ciclo
-    # Aberto/Em andamento). Para os indicadores e gráficos por status fazerem sentido,
-    # usamos uma CÓPIA com o status forçado para "Resolvido" (não altera o banco).
+    # df_status é a base dos indicadores e do gráfico por status. Hoje é uma cópia
+    # simples de df_f — o ajuste que forçava os entregáveis para "Resolvido" existia
+    # apenas no modo "Só entregáveis", que deixou de existir.
     df_status = df_f.copy()
-    if modo_exib == "Só entregáveis":
-        df_status.loc[df_status["eh_entregavel"], "status"] = "Resolvido"
 
     st.markdown("---")
     st.markdown("#### 📈 Indicadores")
@@ -408,11 +437,10 @@ def tela_dashboard():
     # === Registro de entregas de fechamento de período ===
     st.markdown("---")
     st.markdown("##### 🗂️ Entregas de Fechamento de Período")
-    st.caption("Filtra pela data da entrega (data de abertura) e pelos setores selecionados.")
-    mask_entrega_data = df["aberto_em"].dt.date.between(data_ini, data_fim)
+    st.caption("Respeita o recorte de tempo e os setores selecionados nos filtros.")
     df_entregas = df[
         df["setor"].isin(filtro_setor) &
-        mask_entrega_data &
+        mask_tempo &
         df["tipo"].astype(str).str.startswith(PREFIXO_FECHAMENTO)
     ].copy()
 
@@ -476,6 +504,9 @@ def tela_dashboard():
 
     st.markdown("---")
     st.markdown("##### 📥 Exportar dados")
+    st.caption("A planilha respeita os filtros da tela e inclui as abas Chamados (com a coluna "
+               "Período), Mensagens (histórico completo do chat), Dashboard, Performance e "
+               "Notificações.")
     # A aba "Chamados" respeita os filtros da tela: exporta apenas os chamados que
     # estão em df_f (mesmos filtros de status, empresa, setor, tipo e data).
     protocolos_filtrados = set(df_f["protocolo"].tolist())
@@ -500,7 +531,36 @@ def tela_dashboard():
                        + "|" + dfc["enviado_em"].astype(str).str.slice(0, 16))
         contagem = dfc.groupby("protocolo")["_evt"].nunique()
         mapa_notif = contagem.to_dict()
+    # Período (competência) lido do protocolo, logo depois da coluna Protocolo —
+    # é por ele que a Contabilidade organiza o controle, não pelo mês do calendário.
+    df_export["Período"] = (df_export["Protocolo"].astype(str)
+                            .str.extract(r"^ROC-(\d{6})-", expand=False).fillna("—"))
+    colunas = ["Protocolo", "Período"] + [c for c in df_export.columns
+                                          if c not in ("Protocolo", "Período")]
+    df_export = df_export[colunas]
+
     df_export["Notificações"] = df_export["Protocolo"].map(lambda p: int(mapa_notif.get(p, 0)))
+
+    # === Aba Mensagens: histórico COMPLETO do chat dos chamados filtrados ===
+    # Antes a exportação não trazia mensagem nenhuma — só a contagem de
+    # notificações e a data da última. Agora vai a conversa inteira, uma linha
+    # por mensagem, na ordem em que foi enviada.
+    msgs_raw = carregar_mensagens_todas() or []
+    msgs_filtradas = [m for m in msgs_raw if m[0] in protocolos_filtrados]
+    df_msgs = pd.DataFrame(msgs_filtradas, columns=[
+        "Protocolo", "Data/Hora", "Autor", "Perfil", "Mensagem", "Anexo"])
+    if not df_msgs.empty:
+        try:
+            df_msgs["Data/Hora"] = pd.to_datetime(df_msgs["Data/Hora"]).dt.strftime("%d/%m/%Y %H:%M")
+        except:
+            pass
+        df_msgs["Anexo"] = df_msgs["Anexo"].fillna("")
+        df_msgs["Mensagem"] = df_msgs["Mensagem"].fillna("")
+    # Quantidade de mensagens por chamado, como coluna na aba Chamados.
+    contagem_msgs = {}
+    for m in msgs_filtradas:
+        contagem_msgs[m[0]] = contagem_msgs.get(m[0], 0) + 1
+    df_export["Mensagens"] = df_export["Protocolo"].map(lambda p: int(contagem_msgs.get(p, 0)))
     # Deixa a coluna "Resolução" por último (Notificações vem antes dela).
     if "Resolução" in df_export.columns:
         colunas = [c for c in df_export.columns if c != "Resolução"] + ["Resolução"]
@@ -517,6 +577,8 @@ def tela_dashboard():
     df_se = df_f.groupby("setor").size().reset_index(name="Quantidade").sort_values("Quantidade",ascending=False).rename(columns={"setor":"Setor"})
     df_ee = df_f.groupby("empresa").size().reset_index(name="Quantidade").rename(columns={"empresa":"Empresa"})
     df_ste = df_status.groupby("status").size().reset_index(name="Quantidade").rename(columns={"status":"Status"})
+    df_pe = (df_f.groupby("periodo").size().reset_index(name="Quantidade")
+             .sort_values("periodo", ascending=False).rename(columns={"periodo":"Período"}))
 
     df_notif_total = None
     df_notif_tipo = None
@@ -559,7 +621,8 @@ def tela_dashboard():
         ws2 = writer.book.create_sheet("Dashboard")
         writer.sheets["Dashboard"] = ws2
         inserir_cabecalho_relatorio(ws2, "ROC — Dashboard Operacional")
-        secoes = [("📊 KPIs",df_kpi,"041747",False),("📌 Por Tipo",df_te,"041747",True),
+        secoes = [("📊 KPIs",df_kpi,"041747",False),("🗓️ Por Período",df_pe,"041747",True),
+                  ("📌 Por Tipo",df_te,"041747",True),
                   ("🏢 Por Setor",df_se,"0F8C3B",True),("🏭 Por Empresa",df_ee,"0071FE",True),
                   ("🔘 Por Status",df_ste,"FAC318",True)]
         linha = 6
@@ -590,6 +653,10 @@ def tela_dashboard():
 
         if not df_perf.empty:
             escrever_aba_performance(writer, df_perf)
+
+        if not df_msgs.empty:
+            escrever_aba_tabela(writer, "Mensagens", "ROC — Histórico de Mensagens",
+                                df_msgs, alinhar="left")
 
         if df_notif_total is not None and not df_notif_total.empty:
             escrever_aba_tabela(writer, "Notificações", "ROC — Notificações por Protocolo", df_notif_total)
