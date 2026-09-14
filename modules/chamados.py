@@ -119,11 +119,18 @@ def converter_valor(valor):
     elif "," in v: v = v.replace(",", ".")
     return float(v)
 
-def gerar_protocolo():
-    """Gera o próximo protocolo do mês no formato ROC-AAAAMM-XXXX.
-    Em vez de contar todos os chamados (COUNT+1, que colide depois de exclusões),
-    pega o MAIOR número já usado no mês atual e soma 1. Reinicia a cada mês e
-    nunca colide, mesmo que chamados tenham sido apagados."""
+def periodo_protocolo():
+    """Período que compõe o protocolo (ex.: '202609'). Fica guardado na tabela
+    controle_protocolo e só muda quando a Contabilidade reinicia a contagem no
+    painel de administração — não muda sozinho na virada do mês."""
+    r = run_query("SELECT periodo FROM controle_protocolo WHERE id=1", fetch=True)
+    if r and r[0] and r[0][0]:
+        return str(r[0][0]).strip()
+    return datetime.now(BRASILIA).strftime("%Y%m")
+
+def _gerar_protocolo_legado():
+    """Modo antigo, usado só como rede de segurança enquanto a estrutura de
+    controle não existir no banco: numera a partir do maior número do mês."""
     prefixo = f"ROC-{datetime.now(BRASILIA).strftime('%Y%m')}-"
     try:
         r = run_query(
@@ -134,6 +141,30 @@ def gerar_protocolo():
     except:
         ultimo = 0
     return f"{prefixo}{str(ultimo + 1).zfill(4)}"
+
+def gerar_protocolo():
+    """Gera o próximo protocolo no formato ROC-PERIODO-XXXX.
+
+    O período e o contador NÃO dependem mais dos chamados existentes: ficam
+    guardados no banco (tabela controle_protocolo e sequência protocolo_seq).
+    Consequências:
+      · limpar a base NÃO reinicia a numeração;
+      · virar o mês NÃO reinicia a numeração;
+      · a contagem só recomeça quando a Contabilidade clicar em
+        'Reiniciar contagem' no painel de administração.
+
+    A sequência do PostgreSQL também garante que duas pessoas abrindo chamado
+    ao mesmo tempo recebam números diferentes.
+    """
+    try:
+        periodo = periodo_protocolo()
+        r = run_query("SELECT nextval('protocolo_seq')", fetch=True)
+        numero = int(r[0][0])
+        return f"ROC-{periodo}-{str(numero).zfill(4)}"
+    except:
+        # A estrutura de controle ainda não foi criada no banco: não deixa de
+        # abrir chamado por causa disso.
+        return _gerar_protocolo_legado()
 
 def chamado_duplicado_recente(empresa, nome_parceiro, numero_nota, valor_float, horas=1):
     """Retorna o protocolo de um chamado idêntico (mesma empresa + parceiro + NF + valor)
